@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Import Business Card{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Import Business Card</h1>
+<form method="post" action="{{ url_for('data_exchange.import_business_card_extract') }}" enctype="multipart/form-data"
+      class="card shadow-sm border-0" style="max-width: 560px;" id="card-import-form">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="small text-muted">
+      Upload a photo or scan of a business card. Claude reads the text and pre-fills an Organization and a Contact
+      for you to review and correct before anything is saved. If the card doesn't already exist in the database,
+      new Organization/Contact records are created; if a match is found (by company name, and by the person's
+      email or name), only the fields that are still blank on the existing record get filled in — nothing already
+      on file is overwritten.
+    </p>
+    <div class="mb-3">
+      <label class="form-label">Front of card *</label>
+      <input class="form-control" type="file" name="front_image" accept="image/*" required autofocus>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Back of card (optional)</label>
+      <input class="form-control" type="file" name="back_image" accept="image/*">
+      <div class="form-text">Only if the back has printed info worth capturing (a second office, a QR code caption, etc.).</div>
+    </div>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('data_exchange.index') }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-primary" type="submit" id="card-import-submit">Read Card</button>
+  </div>
+</form>
+<script>
+  document.getElementById('card-import-form').addEventListener('submit', function () {
+    var btn = document.getElementById('card-import-submit');
+    btn.disabled = true;
+    btn.innerText = 'Reading card…';
+  });
+</script>
+<p class="text-muted mt-3"><small>
+  Requires an Anthropic API key configured on this server (<code>ANTHROPIC_API_KEY</code> environment variable).
+</small></p>
+{% endblock %}

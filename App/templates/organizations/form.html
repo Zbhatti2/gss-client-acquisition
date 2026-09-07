@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if org else "New" }} Organization{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">{{ "Edit" if org else "New" }} Organization</h1>
+<form method="post" class="card shadow-sm border-0" style="max-width: 560px;">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+      <label class="form-label">Organization name <span class="text-danger">*</span></label>
+      <input class="form-control" name="organization_name" value="{{ (org.organization_name | orblank) if org else '' }}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Type</label>
+      <select class="form-select" name="organization_type_id">
+        <option value="">— None —</option>
+        {% for t in org_types %}
+        <option value="{{ t.organization_type_id }}" {{ "selected" if org and org.organization_type_id == t.organization_type_id else "" }}>{{ t.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-6">
+        <label class="form-label">Number of Employees</label>
+        <input type="number" min="0" class="form-control" id="number_of_employees" name="number_of_employees"
+               value="{{ (org.number_of_employees | orblank) if org else '' }}">
+      </div>
+      <div class="col-6">
+        <label class="form-label">Size Category</label>
+        <select class="form-select" id="size_category_id" name="size_category_id">
+          <option value="">— Select size —</option>
+        </select>
+        <div class="form-text">Suggested from Number of Employees — pick a different one any time.</div>
+      </div>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-6">
+        <label class="form-label">Domain</label>
+        <select class="form-select" id="organization_domain_id" name="organization_domain_id">
+          <option value="">— Select domain —</option>
+        </select>
+      </div>
+      <div class="col-6">
+        <label class="form-label">SubDomain</label>
+        <select class="form-select" id="organization_subdomain_id" name="organization_subdomain_id" disabled>
+          <option value="">— Select domain first —</option>
+        </select>
+      </div>
+    </div>
+    <hr class="my-3">
+    <h2 class="h6">Main Contact Info</h2>
+    <p class="small text-muted">
+      Optional single-line fields — plenty of organizations here (prospects/leads especially) don't have a
+      contact address on file yet, so there's no need to fill any of this in now.
+    </p>
+    {% if org and org.full_address and not (org.street or org.city or org.state or org.postal_code) %}
+    <div class="alert alert-secondary py-2 small">
+      There's an address on file from an import or quick-add ("{{ org.full_address }}") that hasn't been split
+      into the fields below yet. Feel free to copy it in — saving here never overwrites it if you leave these blank.
+    </div>
+    {% endif %}
+    <div class="mb-3">
+      <label class="form-label">Street</label>
+      <input class="form-control" name="main_street" value="{{ (org.street | orblank) if org else '' }}">
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-md-6">
+        <label class="form-label">City</label>
+        <input class="form-control" name="main_city" value="{{ (org.city | orblank) if org else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">State</label>
+        <input class="form-control" name="main_state" value="{{ (org.state | orblank) if org else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Zip/Postal Code</label>
+        <input class="form-control" name="main_postal_code" value="{{ (org.postal_code | orblank) if org else '' }}">
+      </div>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-6">
+        <label class="form-label">Main Phone</label>
+        <input class="form-control" name="main_phone" value="{{ (org.phone | orblank) if org else '' }}">
+      </div>
+      <div class="col-6">
+        <label class="form-label">Main Fax</label>
+        <input class="form-control" name="main_fax" value="{{ (org.fax | orblank) if org else '' }}">
+      </div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Main Email</label>
+      <input class="form-control" type="email" name="main_email" value="{{ (org.email | orblank) if org else '' }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Website</label>
+      <input class="form-control" type="url" name="website" placeholder="https://…" value="{{ (org.website or '') if org else '' }}">
+    </div>
+    {% if not org %}
+    <p class="small text-muted">
+      Need more than one of something — a Mailing Address and a separate Physical Address, several phone
+      lines by type, or documents? Save this form first, then use the matching cards on the organization's
+      page for that level of detail.
+    </p>
+    {% endif %}
+    <div class="mb-3">
+      <label class="form-label">Notes</label>
+      <textarea class="form-control" name="notes" rows="3">{{ (org.notes | orblank) if org else '' }}</textarea>
+    </div>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('organizations.view_organization', org_id=org.organization_id) if org else url_for('organizations.list_organizations') }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-primary" type="submit">Save</button>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/organization_classification.js') }}"></script>
+<script>
+  initOrganizationClassificationPicker({
+    initial: {
+      size_category_id: {{ (org.size_category_id if org else '') | tojson }},
+      organization_domain_id: {{ (org.organization_domain_id if org else '') | tojson }},
+      organization_subdomain_id: {{ (org.organization_subdomain_id if org else '') | tojson }}
+    }
+  });
+</script>
+{% endblock %}

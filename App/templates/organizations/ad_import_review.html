@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Review Ad Import{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Review Before Saving</h1>
+<p class="text-muted">
+  Claude read the photo and found {{ ads|length }} ad{{ "s" if ads|length != 1 }} below. Nothing is saved yet —
+  check the fields against the photo, especially anything flagged, then edit as needed and click Save. Uncheck
+  any ad you don't want saved.
+</p>
+
+<form method="post" action="{{ url_for('organizations.import_ad_save', org_id=org.organization_id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="ad_token" value="{{ ad_token }}">
+  <input type="hidden" name="mime_type" value="{{ mime_type }}">
+  <input type="hidden" name="original_filename" value="{{ original_filename }}">
+  <input type="hidden" name="ad_count" value="{{ ads | length }}">
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+      <div class="card shadow-sm border-0 mb-3" style="position: sticky; top: 1rem;">
+        <div class="card-header bg-light">Ad Photo</div>
+        <div class="card-body text-center">
+          <img src="{{ url_for('organizations.pending_ad_image', org_id=org.organization_id, token=ad_token, mime=mime_type) }}" class="img-fluid rounded border">
+          <div class="form-text mt-2">Attached to every ad listing saved below.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      {% for item in ads %}
+      {% set data = item.data %}
+      {% set raw = item.raw %}
+      {% set existing = item.existing %}
+      <div class="card mb-4 {{ 'border-warning' if existing else '' }}">
+        <div class="card-header {{ 'bg-warning-subtle' if existing else 'bg-light' }} d-flex justify-content-between align-items-center">
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" name="ad-{{ loop.index0 }}-include" id="include-{{ loop.index0 }}" checked>
+            <label class="form-check-label fw-bold" for="include-{{ loop.index0 }}">Ad {{ loop.index }}</label>
+          </div>
+          {% if existing %}
+          <span class="badge bg-warning text-dark">Matches existing listing #{{ existing.ad_listing_id }} ({{ existing.headline }}) — will be updated</span>
+          <input type="hidden" name="ad-{{ loop.index0 }}-existing_id" value="{{ existing.ad_listing_id }}">
+          {% else %}
+          <span class="badge bg-success">New ad listing</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          {% if raw.source_notes %}<div class="alert alert-secondary py-2 small mb-3">{{ raw.source_notes }}</div>{% endif %}
+          {% if raw.uncertain_fields %}<div class="alert alert-info py-2 small mb-3"><strong>Double-check:</strong> {{ raw.uncertain_fields | join(', ') }}</div>{% endif %}
+          <div class="row">
+            <div class="col-md-8 mb-3">
+              <label class="form-label">Headline *</label>
+              <input type="text" name="ad-{{ loop.index0 }}-headline" class="form-control" value="{{ data.headline }}" required>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Ad Type</label>
+              <select name="ad-{{ loop.index0 }}-ad_type" class="form-select">
+                {% for t in ad_types %}
+                <option value="{{ t }}" {{ "selected" if data.ad_type == t }}>{{ t }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Publication / Platform</label>
+              <input type="text" name="ad-{{ loop.index0 }}-publication" class="form-control" value="{{ data.publication or '' }}">
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Date Published</label>
+              <input type="text" name="ad-{{ loop.index0 }}-date_published" class="form-control" value="{{ data.date_published or '' }}" placeholder="YYYY-MM-DD">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea name="ad-{{ loop.index0 }}-description" class="form-control" rows="2">{{ data.description or '' }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Offer Details</label>
+            <textarea name="ad-{{ loop.index0 }}-offer_details" class="form-control" rows="2">{{ data.offer_details or '' }}</textarea>
+          </div>
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Price</label>
+              <input type="number" step="0.01" name="ad-{{ loop.index0 }}-price" class="form-control" value="{{ data.price if data.price is not none else '' }}">
+            </div>
+            <div class="col-md-8 mb-3">
+              <label class="form-label">Price Label</label>
+              <input type="text" name="ad-{{ loop.index0 }}-price_label" class="form-control" value="{{ data.price_label or '' }}">
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Contact Name</label>
+              <input type="text" name="ad-{{ loop.index0 }}-contact_name" class="form-control" value="{{ data.contact_name or '' }}">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Contact Phone</label>
+              <input type="text" name="ad-{{ loop.index0 }}-contact_phone" class="form-control" value="{{ data.contact_phone or '' }}">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Contact Email</label>
+              <input type="email" name="ad-{{ loop.index0 }}-contact_email" class="form-control" value="{{ data.contact_email or '' }}">
+            </div>
+          </div>
+          <input type="hidden" name="ad-{{ loop.index0 }}-source_notes" value="{{ raw.source_notes or '' }}">
+          {% if existing %}
+          <div class="form-text">Any field you leave matching what's shown will keep the existing value; anything you change here overwrites it. A changed price is logged to price history automatically.</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 justify-content-end mb-4">
+    <a href="{{ url_for('organizations.import_ad_form', org_id=org.organization_id) }}" class="btn btn-outline-secondary">Import Another Photo</a>
+    <button type="submit" class="btn btn-success">Save</button>
+  </div>
+</form>
+{% endblock %}

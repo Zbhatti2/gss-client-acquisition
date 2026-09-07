@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Dashboard</h1>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <a href="{{ url_for('organizations.list_organizations') }}" class="text-decoration-none dash-tile-link">
+      <div class="card shadow-sm border-0 dash-tile">
+        <div class="card-body text-center">
+          <i class="bi bi-building dash-tile-icon"></i>
+          <div class="dash-tile-title">Organizations</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-lg-3">
+    <a href="{{ url_for('contacts.list_contacts') }}" class="text-decoration-none dash-tile-link">
+      <div class="card shadow-sm border-0 dash-tile">
+        <div class="card-body text-center">
+          <i class="bi bi-people dash-tile-icon"></i>
+          <div class="dash-tile-title">Contacts</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-lg-3">
+    <a href="{{ url_for('documents.index') }}" class="text-decoration-none dash-tile-link">
+      <div class="card shadow-sm border-0 dash-tile">
+        <div class="card-body text-center">
+          <i class="bi bi-folder2-open dash-tile-icon"></i>
+          <div class="dash-tile-title">Documents</div>
+          <div class="dash-tile-subtitle">&amp; Knowledge Base</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-lg-3">
+    <a href="{{ url_for('data_exchange.index') }}" class="text-decoration-none dash-tile-link">
+      <div class="card shadow-sm border-0 dash-tile">
+        <div class="card-body text-center">
+          <i class="bi bi-arrow-left-right dash-tile-icon"></i>
+          <div class="dash-tile-title">Data Exchange</div>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<div class="dash-metrics-bar">
+  <div class="row g-3">
+    <div class="col-6 col-md-3 col-lg">
+      <div class="card shadow-sm border-0"><div class="card-body text-center">
+        <div class="stat-number">{{ counts.organizations }}</div>
+        <div class="text-muted small">Organizations</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3 col-lg">
+      <div class="card shadow-sm border-0"><div class="card-body text-center">
+        <div class="stat-number">{{ counts.contacts }}</div>
+        <div class="text-muted small">Contacts</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3 col-lg">
+      <div class="card shadow-sm border-0"><div class="card-body text-center">
+        <div class="stat-number">{{ counts.documents }}</div>
+        <div class="text-muted small">Documents</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3 col-lg">
+      <div class="card shadow-sm border-0"><div class="card-body text-center">
+        <div class="stat-number">{{ counts.pending_batches }}</div>
+        <div class="text-muted small">Pending Import Batches</div>
+      </div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

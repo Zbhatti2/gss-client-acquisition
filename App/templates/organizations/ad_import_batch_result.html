@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Bulk Ad Import Results{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Bulk Import Results</h1>
+<div class="text-muted mb-4">{{ org.organization_name }}</div>
+
+<p>
+  <span class="badge bg-success-subtle text-success">{{ results | length }} ad{{ 's' if results|length != 1 }} saved</span>
+  {% if errors %}<span class="badge bg-danger-subtle text-danger ms-1">{{ errors | length }} skipped</span>{% endif %}
+</p>
+
+{% if results %}
+<div class="card shadow-sm border-0 mb-4">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead>
+        <tr>
+          <th>Headline</th>
+          <th>Result</th>
+          <th>From file</th>
+          <th>Flags</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr onclick="window.location='{{ url_for('organizations.edit_ad', org_id=org.organization_id, ad_id=r.ad_id) }}'" style="cursor:pointer;">
+          <td><strong>{{ r.headline }}</strong></td>
+          <td>
+            {% if r.was_update %}<span class="badge bg-warning text-dark">Updated</span>
+            {% else %}<span class="badge bg-success">New</span>{% endif %}
+          </td>
+          <td class="text-muted small">{{ r.filename }}</td>
+          <td class="text-muted small">{{ r.uncertain_fields | join(', ') if r.uncertain_fields else "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if errors %}
+<div class="alert alert-danger">
+  <strong>{{ errors | length }} file{{ 's' if errors|length != 1 }} couldn't be imported:</strong>
+  <ul class="mb-0 mt-2">
+    {% for e in errors %}
+    <li><code>{{ e.filename }}</code> — {{ e.error }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="d-flex gap-2">
+  <a href="{{ url_for('organizations.list_ads', org_id=org.organization_id) }}" class="btn btn-primary">View All Ads</a>
+  <a href="{{ url_for('organizations.import_ad_batch_form', org_id=org.organization_id) }}" class="btn btn-outline-secondary">Import Another Batch</a>
+</div>
+{% endblock %}

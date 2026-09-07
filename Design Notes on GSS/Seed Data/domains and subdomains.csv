@@ -1,0 +1,593 @@
+Domain, SubDomain;
+Agriculture & Farming,Crop Production (Corn, Wheat, Soy)
+Agriculture & Farming,Livestock & Poultry
+Agriculture & Farming,Aquaculture & Fisheries
+Agriculture & Farming,Agritech (Precision Farming)
+Agriculture & Farming,Organic Farming
+Agriculture & Farming,Dairy Farming
+Agriculture & Farming,Agroforestry
+Agriculture & Farming,Hydroponics & Vertical Farming
+Agriculture & Farming,Pesticide & Fertilizer Production
+Agriculture & Farming,Farm Equipment Manufacturing
+Airlines & Aviation,Commercial Passenger Airlines
+Airlines & Aviation,Cargo & Freight Aviation
+Airlines & Aviation,Private Jet & Charter Services
+Airlines & Aviation,Aircraft Manufacturing (OEM)
+Airlines & Aviation,Aerospace Parts & Maintenance (MRO)
+Airlines & Aviation,Airport Operations & Ground Handling
+Airlines & Aviation,Air Traffic Control Systems
+Airlines & Aviation,Space Tourism & Exploration
+Airlines & Aviation,Drone Delivery Services
+Airlines & Aviation,Aviation Fuel & Logistics
+Apparel & Fashion,Luxury/Designer Goods
+Apparel & Fashion,Fast Fashion Retail
+Apparel & Fashion,Sportswear & Activewear
+Apparel & Fashion,Textile & Fabric Manufacturing
+Apparel & Fashion,Footwear
+Apparel & Fashion,Accessories (Jewelry, Bags, Watches)
+Apparel & Fashion,Uniforms & Workwear
+Apparel & Fashion,Children's Wear
+Apparel & Fashion,Lingerie & Intimates
+Apparel & Fashion,Sustainable/Eco-Fashion
+Architecture & Construction,Residential Construction
+Architecture & Construction,Commercial & Industrial Construction
+Architecture & Construction,Heavy Civil Engineering (Roads, Bridges)
+Architecture & Construction,Architectural Design & Planning
+Architecture & Construction,Building Materials Supply
+Architecture & Construction,Interior Fit-Outs
+Architecture & Construction,Landscaping & Exteriors
+Architecture & Construction,Renovation & Remodeling
+Architecture & Construction,Modular/Prefab Construction
+Architecture & Construction,Green/Sustainable Building
+Arts & Culture,Fine Arts (Painting, Sculpture)
+Arts & Culture,Performing Arts (Theater, Dance)
+Arts & Culture,Museums & Galleries
+Arts & Culture,Cultural Heritage Sites
+Arts & Culture,Public Art Installations
+Arts & Culture,Art Dealerships & Auctions
+Arts & Culture,Craftsmanship & Handicrafts
+Arts & Culture,Literature & Poetry
+Arts & Culture,Photography
+Arts & Culture,Cultural Festivals & Events
+Automotive Manufacturing,Passenger Vehicles (Sedans, SUVs)
+Automotive Manufacturing,Electric Vehicles (EV)
+Automotive Manufacturing,Commercial Trucks & Buses
+Automotive Manufacturing,Auto Parts & Components
+Automotive Manufacturing,Autonomous/Self-Driving Tech
+Automotive Manufacturing,Motorcycles & Scooters
+Automotive Manufacturing,Luxury/Performance Cars
+Automotive Manufacturing,Fleet & Leasing Vehicles
+Automotive Manufacturing,Automotive Design & Styling
+Automotive Manufacturing,Aftermarket Accessories
+Banking & Financial Services,Retail Banking (Deposits, Mortgages)
+Banking & Financial Services,Investment Banking (M&A, IPOs)
+Banking & Financial Services,Wealth & Asset Management
+Banking & Financial Services,Private Equity & Venture Capital
+Banking & Financial Services,Insurance (Life, Health, P&C)
+Banking & Financial Services,Credit Cards & Payments
+Banking & Financial Services,Foreign Exchange (Forex)
+Banking & Financial Services,Microfinance
+Banking & Financial Services,Central Banking
+Banking & Financial Services,Trade Finance
+Beverage Production,Carbonated Soft Drinks
+Beverage Production,Alcoholic Beverages (Beer, Wine, Spirits)
+Beverage Production,Functional Drinks (Energy, Sports)
+Beverage Production,Bottled Water
+Beverage Production,Dairy Beverages (Milk, Yogurt drinks)
+Beverage Production,Tea & Coffee Processing
+Beverage Production,Juices & Smoothies
+Beverage Production,Plant-Based Milks
+Beverage Production,Concentrates & Syrups
+Beverage Production,Beverage Canning/Bottling Services
+Biotechnology,Pharmaceuticals (Drug Discovery)
+Biotechnology,Agricultural Biotech (GMOs)
+Biotechnology,Industrial Enzymes
+Biotechnology,Medical Diagnostics
+Biotechnology,Gene Therapy & CRISPR
+Biotechnology,Biofuels & Renewable Chemicals
+Biotechnology,Bioinformatics
+Biotechnology,Nutraceuticals
+Biotechnology,Veterinary Biotech
+Biotechnology,Tissue Engineering
+Chemical Manufacturing,Industrial Gases
+Chemical Manufacturing,Petrochemicals (Plastics, Resins)
+Chemical Manufacturing,Specialty Chemicals (Adhesives, Coatings)
+Chemical Manufacturing,Agricultural Chemicals (Fertilizers, Pesticides)
+Chemical Manufacturing,Pigments & Dyes
+Chemical Manufacturing,Soaps & Detergents
+Chemical Manufacturing,Explosives & Propellants
+Chemical Manufacturing,Water Treatment Chemicals
+Chemical Manufacturing,Electronic Chemicals
+Chemical Manufacturing,Essential Oils & Flavors
+Cybersecurity,Network Security (Firewalls, VPNs)
+Cybersecurity,Endpoint Security (Antivirus, EDR)
+Cybersecurity,Cloud Security
+Cybersecurity,Identity & Access Management (IAM)
+Cybersecurity,Data Encryption & Privacy
+Cybersecurity,Risk & Compliance Solutions
+Cybersecurity,Security Operations (SOC)
+Cybersecurity,Threat Intelligence
+Cybersecurity,Blockchain Security
+Cybersecurity,IoT Security
+Defense & Aerospace,Military Aircraft & Drones
+Defense & Aerospace,Naval Vessels & Submarines
+Defense & Aerospace,Ground Combat Systems (Tanks, Missiles)
+Defense & Aerospace,Weapons & Ammunition
+Defense & Aerospace,Surveillance & Reconnaissance
+Defense & Aerospace,Cybersecurity for Defense
+Defense & Aerospace,Space Defense Systems
+Defense & Aerospace,Defense Logistics & Support
+Defense & Aerospace,Training & Simulation
+Defense & Aerospace,Body Armor & Personnel Protection
+Education & E-Learning,K-12 Primary/Secondary Education
+Education & E-Learning,Higher Education (Universities)
+Education & E-Learning,Vocational & Technical Training
+Education & E-Learning,Online Course Platforms (MOOCs)
+Education & E-Learning,Corporate Training & L&D
+Education & E-Learning,EdTech Software (LMS)
+Education & E-Learning,Tutoring & Test Prep
+Education & E-Learning,Language Learning
+Education & E-Learning,Early Childhood Education
+Education & E-Learning,Educational Publishing
+Electrical & Electronics,Consumer Electronics (TVs, Smartphones)
+Electrical & Electronics,Semiconductors & Chips
+Electrical & Electronics,Industrial Electronics
+Electrical & Electronics,Electronic Components (Capacitors, Connectors)
+Electrical & Electronics,Batteries & Energy Storage
+Electrical & Electronics,Home Appliances
+Electrical & Electronics,Lighting (LED, Smart Lighting)
+Electrical & Electronics,Wiring & Cabling
+Electrical & Electronics,Power Distribution Equipment
+Electrical & Electronics,Sensors & Actuators
+Energy & Utilities,Oil & Gas Exploration (Upstream)
+Energy & Utilities,Natural Gas Distribution
+Energy & Utilities,Renewable Energy (Solar, Wind, Hydro)
+Energy & Utilities,Nuclear Power
+Energy & Utilities,Electric Grid Transmission
+Energy & Utilities,Energy Trading & Marketing
+Energy & Utilities,Geothermal Energy
+Energy & Utilities,Waste-to-Energy
+Energy & Utilities,Hydrogen Fuel Production
+Energy & Utilities,Utility Billing & Customer Service
+Environmental Services,Waste Management & Recycling
+Environmental Services,Water & Wastewater Treatment
+Environmental Services,Air Quality Monitoring
+Environmental Services,Environmental Consulting
+Environmental Services,Ecological Restoration
+Environmental Services,Carbon Offset/Credits Trading
+Environmental Services,Hazardous Material Cleanup
+Environmental Services,Renewable Energy Consulting
+Environmental Services,Environmental Testing Labs
+Environmental Services,Conservation & Wildlife Management
+Event Management,Corporate Conferences & Summits
+Event Management,Weddings & Social Events
+Event Management,Music Concerts & Festivals
+Event Management,Sports Event Management
+Event Management,Trade Shows & Expos
+Event Management,Virtual/Hybrid Events
+Event Management,Awards Ceremonies
+Event Management,Private Parties & Galas
+Event Management,Event Logistics (AV, Staging)
+Event Management,Destination Management
+Film & Cinema,Motion Picture Production
+Film & Cinema,Animation Studios
+Film & Cinema,Film Distribution
+Film & Cinema,Movie Theaters (Exhibition)
+Film & Cinema,Post-Production (Editing, VFX)
+Film & Cinema,Documentary Filmmaking
+Film & Cinema,Short Films
+Film & Cinema,Film Equipment Rental
+Film & Cinema,Casting Agencies
+Film & Cinema,Film Festivals
+Food Processing,Meat & Poultry Processing
+Food Processing,Dairy Processing (Cheese, Yogurt)
+Food Processing,Grain & Cereal Milling
+Food Processing,Bakery & Confectionery
+Food Processing,Frozen Food Production
+Food Processing,Canned & Preserved Foods
+Food Processing,Snack Food Manufacturing
+Food Processing,Plant-Based Meat Alternatives
+Food Processing,Spices & Seasonings
+Food Processing,Baby Food Production
+Gaming & Esports,Video Game Development (AAA)
+Gaming & Esports,Mobile Gaming
+Gaming & Esports,Esports Organizations & Leagues
+Gaming & Esports,Game Streaming Platforms
+Gaming & Esports,Game Publishing
+Gaming & Esports,VR/AR Gaming
+Gaming & Esports,Fantasy Sports
+Gaming & Esports,Casino & Gambling (iGaming)
+Gaming & Esports,Game Engine Development (Unity, Unreal)
+Gaming & Esports,Gaming Hardware (Consoles, Peripherals)
+Government & Public Administration,Federal/National Government
+Government & Public Administration,State/Provincial Government
+Government & Public Administration,Municipal/Local Government
+Government & Public Administration,Public Infrastructure (Roads, Utilities)
+Government & Public Administration,Defense & National Security
+Government & Public Administration,Public Health Agencies
+Government & Public Administration,Education Departments
+Government & Public Administration,Tax & Revenue Services
+Government & Public Administration,Justice & Law Enforcement
+Government & Public Administration,Regulatory Agencies
+Healthcare & Hospitals,General Acute Care Hospitals
+Healthcare & Hospitals,Specialty Clinics (Cardiology, Ortho)
+Healthcare & Hospitals,Primary Care & Urgent Care
+Healthcare & Hospitals,Mental Health & Psychiatry
+Healthcare & Hospitals,Outpatient Surgery Centers
+Healthcare & Hospitals,Rehabilitation & Physical Therapy
+Healthcare & Hospitals,Home Healthcare Services
+Healthcare & Hospitals,Hospice & Palliative Care
+Healthcare & Hospitals,Medical Laboratories
+Healthcare & Hospitals,Telemedicine Platforms
+Hospitality & Lodging,Luxury Hotels & Resorts
+Hospitality & Lodging,Budget/Motel Chains
+Hospitality & Lodging,Boutique Hotels
+Hospitality & Lodging,Timeshare & Vacation Rentals
+Hospitality & Lodging,Hostels & Backpackers
+Hospitality & Lodging,Bed & Breakfasts
+Hospitality & Lodging,Serviced Apartments
+Hospitality & Lodging,Casino Hotels
+Hospitality & Lodging,Eco-Lodges & Glamping
+Hospitality & Lodging,Hotel Management Services
+Human Resources,Recruitment & Staffing Agencies
+Human Resources,Payroll & Benefits Administration
+Human Resources,Talent Management Systems
+Human Resources,Executive Search (Headhunting)
+Human Resources,Employee Training & Development
+Human Resources,HR Consulting
+Human Resources,Workforce Analytics
+Human Resources,Remote Work Solutions
+Human Resources,Background Checks
+Human Resources,Labor Law Compliance
+Information Technology (IT),Enterprise Software (ERP, CRM)
+Information Technology (IT),IT Consulting & System Integration
+Information Technology (IT),Managed IT Services (MSP)
+Information Technology (IT),Cloud Services (IaaS, PaaS, SaaS)
+Information Technology (IT),Data Centers & Colocation
+Information Technology (IT),Technical Support & Help Desk
+Information Technology (IT),Legacy System Modernization
+Information Technology (IT),Application Development
+Information Technology (IT),IT Infrastructure & Networking
+Information Technology (IT),Disaster Recovery Services
+Insurance,Life Insurance
+Insurance,Health Insurance
+Insurance,Property & Casualty (P&C)
+Insurance,Auto Insurance
+Insurance,Reinsurance
+Insurance,Marine & Cargo Insurance
+Insurance,Travel Insurance
+Insurance,Pet Insurance
+Insurance,Cyber Liability Insurance
+Insurance,Title Insurance
+Legal & Law Firms,Corporate & Commercial Law
+Legal & Law Firms,Criminal Defense
+Legal & Law Firms,Family & Divorce Law
+Legal & Law Firms,Personal Injury & Accident
+Legal & Law Firms,Intellectual Property (IP) Law
+Legal & Law Firms,Employment & Labor Law
+Legal & Law Firms,Real Estate & Property Law
+Legal & Law Firms,Tax Law
+Legal & Law Firms,Immigration Law
+Legal & Law Firms,Environmental Law
+Logistics & Supply Chain,Freight Transportation (Truck, Rail, Air)
+Logistics & Supply Chain,Maritime Shipping
+Logistics & Supply Chain,Third-Party Logistics (3PL)
+Logistics & Supply Chain,Supply Chain Management Consulting
+Logistics & Supply Chain,Cold Chain Logistics
+Logistics & Supply Chain,Courier & Parcel Delivery
+Logistics & Supply Chain,Warehousing & Distribution
+Logistics & Supply Chain,Cargo Inspection
+Logistics & Supply Chain,Reverse Logistics (Returns)
+Logistics & Supply Chain,Inventory Management Systems
+Manufacturing (General),Metal Fabrication
+Manufacturing (General),Plastics & Rubber Molding
+Manufacturing (General),CNC Machining
+Manufacturing (General),Assembly & Contract Manufacturing
+Manufacturing (General),Printing & Packaging
+Manufacturing (General),Woodworking & Furniture
+Manufacturing (General),Heavy Machinery Production
+Manufacturing (General),Textile Mills
+Manufacturing (General),Glass Production
+Manufacturing (General),Additive Manufacturing (3D Printing)
+Marketing & Advertising,Digital Marketing (SEO, PPC)
+Marketing & Advertising,Traditional Media (TV, Print, Radio)
+Marketing & Advertising,Social Media Marketing
+Marketing & Advertising,Creative Agencies (Design, Copywriting)
+Marketing & Advertising,Market Research & Analytics
+Marketing & Advertising,Public Relations (PR)
+Marketing & Advertising,Influencer Marketing
+Marketing & Advertising,Event Sponsorship
+Marketing & Advertising,Direct Mail Marketing
+Marketing & Advertising,Brand Strategy Consulting
+Media & Entertainment,Streaming Entertainment (OTT)
+Media & Entertainment,Broadcasting (TV, Radio)
+Media & Entertainment,Print Media (Newspapers, Magazines)
+Media & Entertainment,Digital News Platforms
+Media & Entertainment,Podcast Production
+Media & Entertainment,Music Production & Labels
+Media & Entertainment,Talent Agencies
+Media & Entertainment,Book Publishing
+Media & Entertainment,Outdoor Advertising (Billboards)
+Media & Entertainment,Cable Television Networks
+Medical Devices,Diagnostic Imaging (MRI, CT, X-Ray)
+Medical Devices,Surgical Instruments & Robotics
+Medical Devices,Wearable Health Monitors
+Medical Devices,Orthopedic Implants (Knees, Hips)
+Medical Devices,Cardiovascular Devices (Stents, Pacemakers)
+Medical Devices,Dental Equipment & Supplies
+Medical Devices,In-vitro Diagnostics (IVD)
+Medical Devices,Home Healthcare Devices
+Medical Devices,Vision Care (Lenses, Lasers)
+Medical Devices,Drug Delivery Systems (Pens, Pumps)
+Metals & Mining,Precious Metals (Gold, Silver, Platinum)
+Metals & Mining,Base Metals (Copper, Iron, Zinc)
+Metals & Mining,Coal Mining
+Metals & Mining,Uranium Mining
+Metals & Mining,Rare Earth Elements
+Metals & Mining,Aluminum Production
+Metals & Mining,Steel Manufacturing
+Metals & Mining,Mineral Exploration
+Metals & Mining,Mine Safety Equipment
+Metals & Mining,Smelting & Refining
+Non-Profit & NGOs,Humanitarian Relief
+Non-Profit & NGOs,Environmental Conservation
+Non-Profit & NGOs,Medical Research Foundations
+Non-Profit & NGOs,Educational Charities
+Non-Profit & NGOs,Animal Welfare
+Non-Profit & NGOs,Human Rights Advocacy
+Non-Profit & NGOs,Community Development
+Non-Profit & NGOs,Religious Organizations
+Non-Profit & NGOs,Arts & Culture Foundations
+Non-Profit & NGOs,Think Tanks (Policy Research)
+Oil & Gas,Upstream (Exploration, Drilling)
+Oil & Gas,Midstream (Pipelines, Storage)
+Oil & Gas,Downstream (Refining, Marketing)
+Oil & Gas,Liquefied Natural Gas (LNG)
+Oil & Gas,Oilfield Services (Rig Operations)
+Oil & Gas,Fuel Retail (Gas Stations)
+Oil & Gas,Lubricants & Greases
+Oil & Gas,Asphalt & Bitumen
+Oil & Gas,Natural Gas Processing
+Oil & Gas,Petrochemical Feedstocks
+Pharmaceuticals,Drug Research & Development (R&D)
+Pharmaceuticals,Generic Drug Manufacturing
+Pharmaceuticals,Over-the-Counter (OTC) Drugs
+Pharmaceuticals,Vaccines & Biologics
+Pharmaceuticals,Active Pharmaceutical Ingredients (API)
+Pharmaceuticals,Clinical Trial Services
+Pharmaceuticals,Medical Cannabis/CBD
+Pharmaceuticals,Veterinary Pharmaceuticals
+Pharmaceuticals,Drug Distribution (Wholesale)
+Pharmaceuticals,Regulatory Affairs (FDA)
+Real Estate & Property,Residential Real Estate (Homes, Condos)
+Real Estate & Property,Commercial Real Estate (Office, Retail)
+Real Estate & Property,Industrial Real Estate (Warehouses)
+Real Estate & Property,Land Development
+Real Estate & Property,Property Management
+Real Estate & Property,Real Estate Investment Trusts (REITs)
+Real Estate & Property,Real Estate Brokerage
+Real Estate & Property,Appraisal & Valuation
+Real Estate & Property,Luxury Estates
+Real Estate & Property,Affordable Housing
+Retail (Brick & Mortar),Department Stores
+Retail (Brick & Mortar),Supermarkets & Grocery
+Retail (Brick & Mortar),Specialty Retail (Shoes, Electronics)
+Retail (Brick & Mortar),Convenience Stores
+Retail (Brick & Mortar),Warehouse Clubs (Costco/Sam's)
+Retail (Brick & Mortar),Pharmacies & Drugstores
+Retail (Brick & Mortar),Luxury Boutiques
+Retail (Brick & Mortar),Home Improvement (DIY)
+Retail (Brick & Mortar),Pet Stores
+Retail (Brick & Mortar),Pop-up Shops
+Robotics & Automation,Industrial Robots (Welding, Assembly)
+Robotics & Automation,Service Robots (Cleaning, Delivery)
+Robotics & Automation,Collaborative Robots (Cobots)
+Robotics & Automation,Autonomous Mobile Robots (AMRs)
+Robotics & Automation,Drone Technology
+Robotics & Automation,Robotic Process Automation (RPA - Software)
+Robotics & Automation,Humanoid Robotics
+Robotics & Automation,Medical/Surgical Robotics
+Robotics & Automation,Defense & Security Robots
+Robotics & Automation,Robotic Sensors & Vision
+Semiconductors,Chip Design (Fabless)
+Semiconductors,Semiconductor Manufacturing (Foundries)
+Semiconductors,Memory Chips (DRAM, NAND)
+Semiconductors,Microprocessors (CPU, GPU)
+Semiconductors,Analog & Mixed-Signal Chips
+Semiconductors,Power Semiconductors
+Semiconductors,Semiconductor Equipment (Lithography)
+Semiconductors,Packaging & Testing
+Semiconductors,IoT Chips
+Semiconductors,Automotive Chips
+Social Media & Internet,Social Networking Platforms
+Social Media & Internet,Messaging & Communication Apps
+Social Media & Internet,Content Curation (News Aggregators)
+Social Media & Internet,Forums & Community Platforms
+Social Media & Internet,Dating Apps
+Social Media & Internet,Social Media Management Tools
+Social Media & Internet,User-Generated Content Platforms
+Social Media & Internet,Viral Marketing Platforms
+Social Media & Internet,Social Audio (Podcasts, Live Rooms)
+Social Media & Internet,Review & Recommendation Sites
+Software (SaaS & Enterprise),Customer Relationship Management (CRM)
+Software (SaaS & Enterprise),Enterprise Resource Planning (ERP)
+Software (SaaS & Enterprise),Project Management Software
+Software (SaaS & Enterprise),Communication & Collaboration Tools
+Software (SaaS & Enterprise),Human Capital Management (HCM)
+Software (SaaS & Enterprise),Business Intelligence (BI)
+Software (SaaS & Enterprise),Accounting & Financial Software
+Software (SaaS & Enterprise),Cybersecurity Software
+Software (SaaS & Enterprise),Supply Chain Software
+Software (SaaS & Enterprise),Legal Tech Software
+Sports & Athletics,Professional Sports Leagues (NBA, EPL)
+Sports & Athletics,Sports Equipment Manufacturing
+Sports & Athletics,Fantasy Sports Platforms
+Sports & Athletics,Sports Betting/Gambling
+Sports & Athletics,Collegiate Athletics
+Sports & Athletics,Fitness Centers & Gyms
+Sports & Athletics,Sports Apparel & Merchandising
+Sports & Athletics,Sports Marketing/Sponsorship
+Sports & Athletics,Coaching & Training Academies
+Sports & Athletics,Outdoor Recreation (Camping, Fishing)
+Staffing & Recruitment,Temporary/Contract Staffing
+Staffing & Recruitment,Permanent Placement
+Staffing & Recruitment,Executive Search
+Staffing & Recruitment,IT/Technical Recruitment
+Staffing & Recruitment,Healthcare/Medical Staffing
+Staffing & Recruitment,Industrial/Light Industrial Staffing
+Staffing & Recruitment,Finance & Accounting Recruitment
+Staffing & Recruitment,Remote/Virtual Staffing
+Staffing & Recruitment,Payroll Services
+Staffing & Recruitment,RPO (Recruitment Process Outsourcing)
+Telecommunications,Wireless/Mobile Network Operators
+Telecommunications,Fixed-Line/Broadband Providers
+Telecommunications,Fiber Optics Infrastructure
+Telecommunications,Satellite Communications
+Telecommunications,VoIP & Unified Communications
+Telecommunications,Data Center Connectivity
+Telecommunications,5G Rollout & Technology
+Telecommunications,Telecom Equipment (Routers, Switches)
+Telecommunications,Roaming Services
+Telecommunications,Internet Exchange Points (IXPs)
+Tourism & Travel,Tour Operators (Package Tours)
+Tourism & Travel,Travel Agencies (Online & Offline)
+Tourism & Travel,Cruise Lines
+Tourism & Travel,Car Rentals
+Tourism & Travel,Tourist Attractions & Theme Parks
+Tourism & Travel,Adventure Travel
+Tourism & Travel,Cultural/Heritage Tourism
+Tourism & Travel,Medical Tourism
+Tourism & Travel,Travel Insurance
+Tourism & Travel,Destination Marketing (Tourism Boards)
+Transportation,Public Transit (Buses, Subways)
+Transportation,Trucking & Freight
+Transportation,Rail Transport (Passenger & Cargo)
+Transportation,Ride-Sharing & Taxis
+Transportation,Logistics & Courier Services
+Transportation,Bicycle & Micromobility (Scooters)
+Transportation,Ferry & Water Transport
+Transportation,Pipeline Transport
+Transportation,Limousine & Chauffeur Services
+Transportation,Parking & Toll Management
+Venture Capital & Private Equity,Early-Stage (Seed) VC
+Venture Capital & Private Equity,Growth Equity
+Venture Capital & Private Equity,Late-Stage VC
+Venture Capital & Private Equity,Buyout PE (LBOs)
+Venture Capital & Private Equity,Distressed Asset Investing
+Venture Capital & Private Equity,Real Estate PE
+Venture Capital & Private Equity,Fund of Funds
+Venture Capital & Private Equity,Angel Investing Networks
+Venture Capital & Private Equity,Corporate Venture Capital (CVC)
+Venture Capital & Private Equity,Secondary Market Investments
+Waste Management,Municipal Solid Waste Collection
+Waste Management,Recycling (Plastic, Metal, Paper)
+Waste Management,Hazardous Waste Disposal
+Waste Management,Composting & Organic Waste
+Waste Management,Landfill Operations
+Waste Management,Waste-to-Energy Plants
+Waste Management,E-Waste Recycling
+Waste Management,Medical Waste Disposal
+Waste Management,Construction Debris Removal
+Waste Management,Chemical Waste Treatment
+Wholesale & Distribution,Grocery Wholesale
+Wholesale & Distribution,Electronic Components Distribution
+Wholesale & Distribution,Medical Supply Distribution
+Wholesale & Distribution,Industrial Parts Wholesale
+Wholesale & Distribution,Beverage Wholesale
+Wholesale & Distribution,Tobacco & Cigarette Distribution
+Wholesale & Distribution,Building Material Wholesale
+Wholesale & Distribution,Automotive Parts Distribution
+Wholesale & Distribution,Apparel Wholesale
+Wholesale & Distribution,Pharmaceutical Wholesale
+Architecture & Construction,Handyman Services
+Architecture & Construction,Remodeling & Renovation
+Architecture & Construction,Flooring Installation
+Automotive Services,Auto Mechanics
+Automotive Services,Towing & Roadside Assistance
+Banking & Financial Services,Accounting & Bookkeeping
+Banking & Financial Services,Tax Preparation
+Education & E-Learning,Babysitting & Nanny Services
+Education & E-Learning,Daycare & Childcare Centers
+Environmental Services,Tree Service / Arboriculture
+Environmental Services,Lawn Care & Landscaping
+Environmental Services,Pool Maintenance & Cleaning
+Environmental Services,Pest Control
+Environmental Services,Janitorial & Commercial Cleaning
+Healthcare & Hospitals,In-Home Elderly Care
+Healthcare & Hospitals,Hospice Care
+Hospitality & Lodging,Barber Shops
+Hospitality & Lodging,Hair & Nail Salons
+Hospitality & Lodging,Day Spas
+Legal & Law Firms,General Practice Law
+Legal & Law Firms,Real Estate Law
+Local Services & Trades,Pet Grooming
+Local Services & Trades,Personal Chef & Catering
+Local Services & Trades,Event Planning
+Real Estate & Property,Residential Real Estate Brokers
+Real Estate & Property,Property Managers
+Sports & Athletics,Personal Trainers & Gyms
+Transportation,Moving & Hauling Services
+Automotive Services,Vehicle Detailing
+Architecture & Construction,Handyman Services
+Architecture & Construction,Renovation & Remodeling
+Architecture & Construction,Residential Construction
+Architecture & Construction,Building Materials Supply (for small suppliers)
+Environmental Services,Tree Service / Arboriculture
+Environmental Services,Lawn Care & Landscaping
+Environmental Services,Pest Control
+Environmental Services,Junk Removal
+Automotive Manufacturing,Auto Mechanics (General Repair)
+Automotive Manufacturing,Collision & Body Shops
+Automotive Manufacturing,Tire & Alignment Services
+Automotive Manufacturing,Fleet Maintenance
+Transportation,Towing & Recovery Services
+Transportation,Roadside Assistance
+Transportation,Vehicle Transport
+Apparel & Fashion,Tailoring & Alterations
+Apparel & Fashion,Custom Dressmaking
+Hospitality & Lodging,Barber Shops
+Hospitality & Lodging,Hair Salons
+Hospitality & Lodging,Nail Salons
+Hospitality & Lodging,Spa Services
+Hospitality & Lodging,Tanning Salons
+Legal & Law Firms,Personal Injury Law
+Legal & Law Firms,Family Law
+Legal & Law Firms,Real Estate Law
+Legal & Law Firms,Tax Law
+Legal & Law Firms,Small Business Legal Services
+Banking & Financial Services,Tax Preparation Services
+Banking & Financial Services,Accounting & Bookkeeping
+Banking & Financial Services,Small Business Payroll
+Banking & Financial Services,Financial Planning for Individuals
+Real Estate & Property,Residential Real Estate Brokers
+Real Estate & Property,Property Management
+Real Estate & Property,Real Estate Appraisal
+Real Estate & Property,Leasing Services
+Healthcare & Hospitals,Elderly/In-Home Care
+Healthcare & Hospitals,Senior Day Centers
+Healthcare & Hospitals,Hospice & Palliative Care
+Healthcare & Hospitals,Home Health Aides
+Education & E-Learning,Babysitting/Nanny Services
+Education & E-Learning,Daycare & Early Childhood Education
+Education & E-Learning,Tutoring Services
+Sports & Athletics,Personal Training
+Sports & Athletics,Yoga Studios
+Sports & Athletics,Gyms & Fitness Centers
+Environmental Services,Janitorial Services
+Environmental Services,Carpet Cleaning
+Environmental Services,Window Cleaning
+Environmental Services,Power Washing
+Environmental Services,Biohazard Cleanup
+Manufacturing (General),Appliance Repair
+Manufacturing (General),Electronics Repair
+Manufacturing (General),Furniture Refinishing
+Local Services & Trades,Pool Maintenance
+Local Services & Trades,Pet Grooming
+Local Services & Trades,Mobile Detailing
+Local Services & Trades,Moving & Hauling
+Local Services & Trades,Event Planning
+Local Services & Trades,Catering
+Local Services & Trades,Private Investigators
+Local Services & Trades,Wedding Officiants
+Local Services & Trades,Notary Public
+Local Services & Trades,Signage & Graphics

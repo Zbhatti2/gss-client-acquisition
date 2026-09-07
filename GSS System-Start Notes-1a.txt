@@ -1,0 +1,21 @@
+GSS System
+===========
+cd "D:\Codegen\Claude\GSS"
+Set-ExecutionPolicy Bypass -Scope Process
+
+thtp://127.0.0.1:5000
+Log in with the admin account:
+ 
+
+First Tenant: 
+Name: "Granite Signal Systems (GSS)"
+Address: 104 Old Winslow Road
+Wilmot, NH. 03287
+
+Phone: +1-603-975-7200
+
+Log in with the admin account:
+Zeb. / `Zebra`
+
+
+

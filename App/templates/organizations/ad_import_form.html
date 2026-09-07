@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Import Ad{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Import Ad</h1>
+<div class="text-muted mb-4">{{ org.organization_name }}</div>
+
+<form method="post" action="{{ url_for('organizations.import_ad_extract', org_id=org.organization_id) }}" enctype="multipart/form-data"
+      class="card shadow-sm border-0" style="max-width: 560px;" id="ad-import-form">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="small text-muted">
+      Upload a photo of an ad — a magazine or newspaper ad, a classified, a flyer, a social-media post screenshot,
+      or a screenshot of an online ad. Claude reads it and pre-fills an Ad Listing for you to review and correct
+      before anything is saved. If a listing with the same headline already exists for this organization, it's
+      updated in place (with any price change logged) instead of creating a duplicate. The original photo is
+      always kept attached to the listing.
+    </p>
+    <div class="mb-3">
+      <label class="form-label">Ad photo *</label>
+      <input class="form-control" type="file" name="ad_image" accept="image/*" required autofocus>
+    </div>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('organizations.list_ads', org_id=org.organization_id) }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-primary" type="submit" id="ad-import-submit">Read Ad</button>
+  </div>
+</form>
+<script>
+  document.getElementById('ad-import-form').addEventListener('submit', function () {
+    var btn = document.getElementById('ad-import-submit');
+    btn.disabled = true;
+    btn.innerText = 'Reading ad…';
+  });
+</script>
+<p class="text-muted mt-3"><small>
+  Requires an Anthropic API key configured on this server (<code>ANTHROPIC_API_KEY</code> environment variable).
+  Prefer to upload several ad photos at once? Use
+  <a href="{{ url_for('organizations.import_ad_batch_form', org_id=org.organization_id) }}">Import Ads in Bulk</a> instead.
+</small></p>
+{% endblock %}

@@ -1,0 +1,15 @@
+flask>=3.0
+cryptography>=42.0
+
+# Loads ANTHROPIC_API_KEY (and anything else) from a local .env file at
+# startup -- see app.py's load_dotenv() call and .env.example. Same
+# convention as the Book to Movie Studio app.
+python-dotenv>=1.0
+
+# Optional: only needed for Data Exchange > Import Business Card (AI). The
+# rest of the app runs fine without these installed; that feature just
+# reports a clear error (in the UI, not a stack trace) telling you what's
+# missing until these packages AND the ANTHROPIC_API_KEY environment
+# variable (get one at console.anthropic.com) are both set up.
+anthropic>=0.40
+Pillow>=10.0

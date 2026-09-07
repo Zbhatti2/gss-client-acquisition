@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Import Ads in Bulk{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Import Ads in Bulk</h1>
+<div class="text-muted mb-4">{{ org.organization_name }}</div>
+
+<form method="post" action="{{ url_for('organizations.import_ad_batch_extract', org_id=org.organization_id) }}" enctype="multipart/form-data"
+      class="card shadow-sm border-0" style="max-width: 620px;" id="ad-batch-form">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="small text-muted">
+      Upload a <strong>.zip</strong> file containing photos of ads (jpg/png/gif/webp) — up to {{ max_batch_images }}
+      images per batch. Each photo is read by Claude and saved straight away: a listing matching an existing
+      headline for this organization is updated in place (with any price change logged); anything new is created.
+      There's no review step here, so double-check the results afterward — anything that couldn't be read is
+      listed separately rather than stopping the whole batch. The original photo is kept attached to every
+      listing it produced.
+    </p>
+    <div class="mb-3">
+      <label class="form-label">Zip file of ad photos *</label>
+      <input class="form-control" type="file" name="zip_file" accept=".zip" required autofocus>
+    </div>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('organizations.list_ads', org_id=org.organization_id) }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-primary" type="submit" id="ad-batch-submit">Import Batch</button>
+  </div>
+</form>
+<script>
+  document.getElementById('ad-batch-form').addEventListener('submit', function () {
+    var btn = document.getElementById('ad-batch-submit');
+    btn.disabled = true;
+    btn.innerText = 'Reading images… this can take a minute for a full batch';
+  });
+</script>
+<p class="text-muted mt-3"><small>
+  Requires an Anthropic API key configured on this server (<code>ANTHROPIC_API_KEY</code> environment variable).
+  Importing one ad at a time with a review step? Use
+  <a href="{{ url_for('organizations.import_ad_form', org_id=org.organization_id) }}">Import One Ad</a> instead.
+</small></p>
+{% endblock %}

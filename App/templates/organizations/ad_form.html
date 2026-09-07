@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit Ad Listing" if ad else "New Ad Listing" }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h1 class="h3 mb-0">{{ "Edit Ad Listing" if ad else "New Ad Listing" }}</h1>
+    <div class="text-muted">{{ org.organization_name }}</div>
+  </div>
+  <a href="{{ url_for('organizations.list_ads', org_id=org.organization_id) }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Back to Ads</a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <form method="post" class="card shadow-sm border-0 mb-3">
+      <div class="card-body">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row">
+          <div class="col-md-8 mb-3">
+            <label class="form-label">Headline *</label>
+            <input type="text" name="headline" class="form-control" value="{{ ad.headline if ad else '' }}" required>
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Ad Type</label>
+            <select name="ad_type" class="form-select">
+              {% for t in ad_types %}
+              <option value="{{ t }}" {{ "selected" if (ad.ad_type if ad else "Print") == t }}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Publication / Platform</label>
+            <input type="text" name="publication" class="form-control" value="{{ ad.publication if ad else '' }}">
+          </div>
+          <div class="col-md-3 mb-3">
+            <label class="form-label">Date Published</label>
+            <input type="text" name="date_published" class="form-control" value="{{ ad.date_published if ad else '' }}" placeholder="YYYY-MM-DD">
+          </div>
+          <div class="col-md-3 mb-3">
+            <label class="form-label">Status</label>
+            <select name="status" class="form-select">
+              {% for s in ("Active", "Expired", "Archived") %}
+              <option value="{{ s }}" {{ "selected" if (ad.status if ad else "Active") == s }}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea name="description" class="form-control" rows="3">{{ ad.description if ad else '' }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Offer Details</label>
+          <textarea name="offer_details" class="form-control" rows="2">{{ ad.offer_details if ad else '' }}</textarea>
+        </div>
+        <div class="row">
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Price</label>
+            <input type="number" step="0.01" name="price" class="form-control" value="{{ ad.price if ad and ad.price is not none else '' }}">
+          </div>
+          <div class="col-md-8 mb-3">
+            <label class="form-label">Price Label</label>
+            <input type="text" name="price_label" class="form-control" value="{{ ad.price_label if ad else '' }}" placeholder="e.g. Starting at, Sale Price, /month">
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Contact Name</label>
+            <input type="text" name="contact_name" class="form-control" value="{{ ad.contact_name if ad else '' }}">
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Contact Phone</label>
+            <input type="text" name="contact_phone" class="form-control" value="{{ ad.contact_phone if ad else '' }}">
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Contact Email</label>
+            <input type="email" name="contact_email" class="form-control" value="{{ ad.contact_email if ad else '' }}">
+          </div>
+        </div>
+        <div class="mb-0">
+          <label class="form-label">Source Notes</label>
+          <textarea name="source_notes" class="form-control" rows="2">{{ ad.source_notes if ad else '' }}</textarea>
+        </div>
+      </div>
+      <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+        {% if ad %}
+        <form method="post" action="{{ url_for('organizations.delete_ad', org_id=org.organization_id, ad_id=ad.ad_listing_id) }}" onsubmit="return confirm('Delete this ad listing? This also deletes its notes, price history, and photos.');" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-danger btn-sm" type="submit"><i class="bi bi-trash"></i> Delete</button>
+        </form>
+        {% else %}<span></span>{% endif %}
+        <button type="submit" class="btn btn-success">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-5">
+    {% if ad %}
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header bg-light">Original Ad Photo{{ "s" if photos|length != 1 else "" }} <span class="badge bg-light text-muted border">{{ photos|length }}</span></div>
+      <div class="card-body">
+        {% for p in photos %}
+        <div class="d-flex justify-content-between align-items-center border-top py-2">
+          <a href="{{ url_for('organizations.ad_photo', org_id=org.organization_id, ad_id=ad.ad_listing_id, photo_id=p.ad_photo_id) }}" target="_blank">
+            <img src="{{ url_for('organizations.ad_photo', org_id=org.organization_id, ad_id=ad.ad_listing_id, photo_id=p.ad_photo_id) }}" class="rounded border" style="height:70px;width:70px;object-fit:cover;">
+          </a>
+          <span class="small text-muted flex-grow-1 ms-2">
+            {{ p.original_filename or "photo" }}<br>{{ p.created_at | format_date }}
+            {% if p.source %}<br><span class="text-muted" style="font-size:0.82em;">from: {{ p.source }}</span>{% endif %}
+          </span>
+          <form method="post" action="{{ url_for('organizations.delete_ad_photo', org_id=org.organization_id, ad_id=ad.ad_listing_id, photo_id=p.ad_photo_id) }}" onsubmit="return confirm('Remove this photo?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-link text-danger py-0" type="submit"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+        {% else %}<p class="text-muted small mb-0">No original ad photo on file — imported ads keep the original photo here automatically.</p>{% endfor %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header bg-light">Price History</div>
+      <div class="card-body">
+        {% for h in price_history %}
+        <div class="d-flex justify-content-between border-top py-2 small">
+          <span>{{ "%.2f"|format(h.price) }}{% if h.price_label %} ({{ h.price_label }}){% endif %}</span>
+          <span class="text-muted">{{ h.recorded_at | format_date }}{% if h.note %} — {{ h.note }}{% endif %}</span>
+        </div>
+        {% else %}<p class="text-muted small mb-0">No price changes recorded.</p>{% endfor %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header bg-light">Notes</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('organizations.add_ad_note', org_id=org.organization_id, ad_id=ad.ad_listing_id) }}" class="d-flex gap-2 mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="note_text" class="form-control form-control-sm" placeholder="Add a note…" required>
+          <button class="btn btn-sm btn-outline-primary" type="submit">Add</button>
+        </form>
+        {% for n in notes %}
+        <div class="border-top py-2 small">
+          {{ n.note_text }}
+          <div class="text-muted" style="font-size:0.8em;">{{ n.created_at | format_date }}{% if n.source %} — {{ n.source }}{% endif %}</div>
+        </div>
+        {% else %}<p class="text-muted small mb-0">No notes yet.</p>{% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="card shadow-sm border-0">
+      <div class="card-body text-muted small">
+        Price history, notes, and the original ad photo(s) will show here once this listing is saved —
+        or use <a href="{{ url_for('organizations.import_ad_form', org_id=org.organization_id) }}">Import One Ad</a>
+        to create a listing straight from a photo instead of entering it by hand.
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

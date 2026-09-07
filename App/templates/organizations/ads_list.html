@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Ads — {{ org.organization_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h1 class="h3 mb-0">Ad Listings</h1>
+    <div class="text-muted">{{ org.organization_name }}</div>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('organizations.new_ad', org_id=org.organization_id) }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> New (manual)</a>
+    <a href="{{ url_for('organizations.import_ad_form', org_id=org.organization_id) }}" class="btn btn-primary btn-sm"><i class="bi bi-camera"></i> Import One Ad</a>
+    <a href="{{ url_for('organizations.import_ad_batch_form', org_id=org.organization_id) }}" class="btn btn-primary btn-sm"><i class="bi bi-file-earmark-zip"></i> Import Ads in Bulk</a>
+    <a href="{{ url_for('organizations.view_organization', org_id=org.organization_id) }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Back to Organization</a>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead>
+        <tr>
+          <th>Headline</th>
+          <th>Type</th>
+          <th>Publication</th>
+          <th>Price</th>
+          <th>Status</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ad in ads %}
+        <tr onclick="window.location='{{ url_for('organizations.edit_ad', org_id=org.organization_id, ad_id=ad.ad_listing_id) }}'" style="cursor:pointer;">
+          <td><strong>{{ ad.headline }}</strong></td>
+          <td><span class="badge bg-secondary-subtle text-dark">{{ ad.ad_type }}</span></td>
+          <td class="text-muted small">{{ ad.publication or "—" }}</td>
+          <td class="text-nowrap">
+            {% if ad.price is not none %}
+            {{ "%.2f"|format(ad.price) }}{% if ad.price_label %} <span class="text-muted small">({{ ad.price_label }})</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge {{ 'bg-success-subtle text-success' if ad.status == 'Active' else ('bg-secondary-subtle text-dark' if ad.status == 'Archived' else 'bg-warning-subtle text-dark') }}">{{ ad.status }}</span>
+          </td>
+          <td class="text-muted small">{{ ad.updated_at | format_date }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-5">
+          No ad listings yet — <a href="{{ url_for('organizations.import_ad_form', org_id=org.organization_id) }}">import a photo of one</a>
+          or <a href="{{ url_for('organizations.new_ad', org_id=org.organization_id) }}">add one manually</a>.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

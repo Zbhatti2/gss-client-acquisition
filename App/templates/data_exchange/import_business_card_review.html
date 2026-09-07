@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Review Business Card{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Review Before Saving</h1>
+<p class="text-muted">
+  Claude read the card and filled in what it found below. Nothing is saved yet — check the fields against the
+  card image, especially anything flagged, then edit as needed and click Save.
+</p>
+
+{% if data.source_notes %}
+<div class="alert alert-secondary py-2"><small>{{ data.source_notes }}</small></div>
+{% endif %}
+{% if data.uncertain_fields %}
+<div class="alert alert-info py-2"><strong>Double-check:</strong> {{ data.uncertain_fields | join(', ') }}</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('data_exchange.import_business_card_save') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="card_token" value="{{ card_token }}">
+  <input type="hidden" name="front_mime" value="{{ front_mime }}">
+  {% if back_mime %}
+  <input type="hidden" name="back_mime" value="{{ back_mime }}">
+  {% endif %}
+  <input type="hidden" name="contact_count" value="{{ contacts | length }}">
+  {% if existing_org %}<input type="hidden" name="existing_organization_id" value="{{ existing_org.organization_id }}">{% endif %}
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+      <div class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-light">Card Image{{ 's' if back_mime }}</div>
+        <div class="card-body text-center">
+          <img src="{{ url_for('data_exchange.pending_card_image', token=card_token, side='front', mime=front_mime) }}" class="img-fluid rounded border mb-2" style="max-height:220px;">
+          {% if back_mime %}
+          <img src="{{ url_for('data_exchange.pending_card_image', token=card_token, side='back', mime=back_mime) }}" class="img-fluid rounded border" style="max-height:220px;">
+          {% endif %}
+          <div class="form-text mt-2">Saved to the first contact below as their Business Card image once you click Save.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      <div class="card mb-4 {{ 'border-warning' if existing_org else '' }}">
+        <div class="card-header {{ 'bg-warning-subtle' if existing_org else 'bg-light' }} d-flex justify-content-between align-items-center">
+          <strong>Organization</strong>
+          {% if existing_org %}
+          <span class="badge bg-warning text-dark">Matches existing organization #{{ existing_org.organization_id }} — blank fields only will be filled in</span>
+          {% else %}
+          <span class="badge bg-success">New organization</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Company Name</label>
+              <input type="text" name="organization_name" class="form-control" value="{{ data.organization_name or '' }}">
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Website</label>
+              <input type="text" name="organization_website" class="form-control" value="{{ data.organization_website or '' }}">
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Company Phone</label>
+              <input type="text" name="organization_phone" class="form-control" value="{{ data.organization_phone or '' }}">
+            </div>
+            <div class="col-md-2 mb-3">
+              <label class="form-label">Label</label>
+              <input type="text" name="organization_phone_label" class="form-control" value="{{ data.organization_phone_label or '' }}" placeholder="Office">
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Company Email</label>
+              <input type="email" name="organization_email" class="form-control" value="{{ data.organization_email or '' }}">
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-8 mb-3">
+              <label class="form-label">Street</label>
+              <input type="text" name="address_street" class="form-control" value="{{ shared_address.street }}">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Unit / Suite</label>
+              <input type="text" name="address_unit" class="form-control" value="{{ shared_address.unit }}">
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="form-label">City</label>
+              <input type="text" name="address_city" class="form-control" value="{{ shared_address.city }}">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">State / Province</label>
+              <input type="text" name="address_state" class="form-control" value="{{ shared_address.state }}">
+            </div>
+            <div class="col-md-2 mb-3">
+              <label class="form-label">Postal Code</label>
+              <input type="text" name="address_postal_code" class="form-control" value="{{ shared_address.postal_code }}">
+            </div>
+            <div class="col-md-2 mb-3">
+              <label class="form-label">Country</label>
+              <input type="text" name="address_country" class="form-control" value="{{ shared_address.country }}">
+            </div>
+          </div>
+          {% if existing_org %}
+          <div class="form-text">This address/phone/email is only added if the organization doesn't already have one on file — an existing one is left as-is.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% for item in contacts %}
+      {% set c = item.data %}
+      {% set existing = item.existing %}
+      <div class="card mb-4 {{ 'border-warning' if existing else '' }}">
+        <div class="card-header {{ 'bg-warning-subtle' if existing else 'bg-light' }} d-flex justify-content-between align-items-center">
+          <strong>Contact {{ loop.index }}</strong>
+          {% if existing %}
+          <span class="badge bg-warning text-dark">Matches existing contact #{{ existing.contact_id }} ({{ existing.full_name }}) — blank fields only will be filled in</span>
+          {% else %}
+          <span class="badge bg-success">New contact</span>
+          {% endif %}
+        </div>
+        {% set contact_index = loop.index0 %}
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-8 mb-3">
+              <label class="form-label">Full Name {% if not existing %}*{% endif %}</label>
+              <input type="text" name="contact-{{ contact_index }}-full_name" class="form-control" value="{{ c.full_name or '' }}" {{ 'required' if not existing }}>
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Job Title</label>
+              <input type="text" name="contact-{{ contact_index }}-job_title" class="form-control" value="{{ c.job_title or '' }}">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email(s)</label>
+            <textarea name="contact-{{ contact_index }}-emails" class="form-control" rows="2">{{ (c.emails or []) | join('\n') }}</textarea>
+            <div class="form-text">One per line. Any not already on the matched contact's record are added (never replaces an existing one).</div>
+          </div>
+          <div class="row">
+            {% for n in range(1, 4) %}
+            {% set p = (c.phones or [])[n-1] if (c.phones or [])|length >= n else None %}
+            <div class="col-md-4 mb-3">
+              <label class="form-label">Phone {{ n }}</label>
+              <div class="input-group">
+                <input type="text" name="contact-{{ contact_index }}-phone{{ n }}_number" class="form-control" value="{{ p.number if p else '' }}" placeholder="Number">
+              </div>
+              <select name="contact-{{ contact_index }}-phone{{ n }}_label" class="form-select form-select-sm mt-1">
+                {% for t in contact_phone_types %}
+                <option value="{{ t }}" {% if p and (p.label or '') and t.lower() in (p.label or '').lower() %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+              </select>
+              {% if p and p.label %}<div class="form-text">Card read: "{{ p.label }}"</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% if existing %}
+          <div class="form-text">Phones/emails already on this contact's record are never duplicated or overwritten.</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 justify-content-end mb-4">
+    <a href="{{ url_for('data_exchange.import_business_card_form') }}" class="btn btn-outline-secondary">Import Another Card</a>
+    <button type="submit" class="btn btn-success">Save</button>
+  </div>
+</form>
+{% endblock %}
