@@ -1,4 +1,4 @@
-from flask import Blueprint, g, render_template
+from flask import Blueprint, g, redirect, render_template, url_for
 
 from auth.decorators import login_required
 from db import get_db
@@ -14,6 +14,15 @@ def index():
     had several not-yet-built tourism modules behind "coming soon" pages),
     every module GSS ships is real, so every tile here links straight to
     its own module rather than a placeholder."""
+    if g.role == "SystemAdmin":
+        # A SystemAdmin has no tenant_id of their own, so every count below
+        # would just be an empty/meaningless zero for them -- same reasoning
+        # auth/routes.py's login() already uses to send them straight to
+        # Tenant Management instead. This covers the same case for anyone
+        # who lands on "/" directly (an old bookmark, the sidebar logo)
+        # rather than through a fresh login.
+        return redirect(url_for("tenants_admin.list_tenants"))
+
     db = get_db()
     tenant_id = g.tenant_id
     counts = {

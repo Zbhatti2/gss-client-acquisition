@@ -1,7 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import help_button %}
 {% block title %}Table Maintenance{% endblock %}
 {% block content %}
-<h1 class="h3 mb-2">Table Maintenance</h1>
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h1 class="h3 mb-0">Table Maintenance</h1>
+  {{ help_button('table-maintenance/overview') }}
+</div>
 <p class="text-muted mb-4">Select a table below to add, edit, deactivate, or delete its entries.</p>
 
 {% for group in groups %}

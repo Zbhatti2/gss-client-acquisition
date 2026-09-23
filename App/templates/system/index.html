@@ -1,7 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import help_button %}
 {% block title %}System Management{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4">System Management</h1>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">System Management</h1>
+  {{ help_button('system-management/overview') }}
+</div>
 
 <div class="row g-3">
   <div class="col-md-6">
@@ -10,6 +14,14 @@
         <h2 class="h5">Account</h2>
         <dl class="row mb-0">
           <dt class="col-sm-5">Organization</dt><dd class="col-sm-7">{{ tenant.tenant_name }}</dd>
+          <dt class="col-sm-5">Account Number</dt><dd class="col-sm-7">{{ tenant.account_number }}</dd>
+          {% if tenant.address_street or tenant.address_city %}
+          <dt class="col-sm-5">Address</dt>
+          <dd class="col-sm-7">
+            {{ tenant.address_street or "" }}{% if tenant.address_street and (tenant.address_city or tenant.address_state or tenant.address_postal_code) %}<br>{% endif %}
+            {{ tenant.address_city or "" }}{% if tenant.address_city and tenant.address_state %}, {% endif %}{{ tenant.address_state or "" }} {{ tenant.address_postal_code or "" }}
+          </dd>
+          {% endif %}
           <dt class="col-sm-5">User ID</dt><dd class="col-sm-7">{{ g.username }} <span class="text-muted small">({{ g.role }})</span></dd>
           <dt class="col-sm-5">Organization since</dt><dd class="col-sm-7">{{ tenant.created_at }}</dd>
           <dt class="col-sm-5">Last backup</dt><dd class="col-sm-7">{{ last_backup_at or "Never" }}</dd>
@@ -44,8 +56,19 @@
   <div class="col-md-6">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
+        <h2 class="h5"><i class="bi bi-journal-text"></i> Audit log</h2>
+        <p class="text-muted small mb-3">Every create/update/delete/login/import/export/purge is recorded here — your organization's own activity.</p>
+        <a href="{{ url_for('system_mgmt.audit_log') }}" class="btn btn-primary btn-sm">View audit log</a>
+      </div>
+    </div>
+  </div>
+
+  {% if g.role == 'SystemAdmin' %}
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
         <h2 class="h5"><i class="bi bi-heart-pulse"></i> Database health</h2>
-        <p class="text-muted small mb-3">SQLite integrity check, table counts, and file size.</p>
+        <p class="text-muted small mb-3">SQLite integrity check, table counts, and file size — the whole database, every tenant.</p>
         <a href="{{ url_for('system_mgmt.health') }}" class="btn btn-primary btn-sm">Run health check</a>
       </div>
     </div>
@@ -54,21 +77,21 @@
   <div class="col-md-6">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-body">
-        <h2 class="h5"><i class="bi bi-journal-text"></i> Audit log</h2>
-        <p class="text-muted small mb-3">Every create/update/delete/login/import/export/purge is recorded here.</p>
-        <a href="{{ url_for('system_mgmt.audit_log') }}" class="btn btn-primary btn-sm">View audit log</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-md-6">
-    <div class="card shadow-sm border-0 h-100">
-      <div class="card-body">
         <h2 class="h5"><i class="bi bi-hdd-stack"></i> Backup &amp; restore</h2>
-        <p class="text-muted small mb-3">Create a backup of the whole database, review the backup log, or restore from an earlier one.</p>
+        <p class="text-muted small mb-3">Create a backup of the whole database, review the backup log, or restore from an earlier one — affects every tenant, so this is System Admin only.</p>
         <a href="{{ url_for('system_mgmt.backups_index') }}" class="btn btn-primary btn-sm">Backup &amp; restore</a>
       </div>
     </div>
   </div>
+  {% else %}
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <h2 class="h5 text-muted"><i class="bi bi-hdd-stack"></i> Database health &amp; backups</h2>
+        <p class="text-muted small mb-0">These touch the whole platform's database, so they're handled by a System Admin rather than from here.</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

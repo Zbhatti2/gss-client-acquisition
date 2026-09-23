@@ -1,7 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import help_button %}
 {% block title %}{{ "Edit Contact" if contact else "New Contact" }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-1">{{ "Edit Contact" if contact else "New Contact" }}</h1>
+<div class="d-flex justify-content-between align-items-center mb-1">
+  <h1 class="h3 mb-0">{{ "Edit Contact" if contact else "New Contact" }}</h1>
+  {{ help_button('contacts/new-contact') }}
+</div>
 {% if not contact and preselect_organization_id %}
 <p class="text-muted mb-4">Adding a contact for this organization — change the Organization field below if that's not right.</p>
 {% else %}

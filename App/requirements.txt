@@ -1,6 +1,10 @@
 flask>=3.0
 cryptography>=42.0
 
+# Renders the in-app contextual Help panel's content (App/help_content/*.md)
+# to HTML -- see blueprints/help.py.
+Markdown>=3.5
+
 # Loads ANTHROPIC_API_KEY (and anything else) from a local .env file at
 # startup -- see app.py's load_dotenv() call and .env.example. Same
 # convention as the Book to Movie Studio app.
@@ -13,3 +17,9 @@ python-dotenv>=1.0
 # variable (get one at console.anthropic.com) are both set up.
 anthropic>=0.40
 Pillow>=10.0
+
+# Production WSGI server (Hostinger VPS / Coolify deploy -- see Dockerfile
+# and entrypoint.sh). Not used by the local start_gss_*.bat setup, which
+# still runs Werkzeug's dev server via `flask run`; harmless to have
+# installed locally too.
+gunicorn>=21.2

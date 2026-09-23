@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}My Usage{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Agent Usage</h1>
+  {% if g.role in ('TenantAdmin', 'SystemAdmin') %}
+  <a href="{{ url_for('billing.api_keys') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-key"></i> API Keys</a>
+  {% endif %}
+</div>
+<p class="text-muted">How much you've used each agent this billing cycle, against your plan.</p>
+
+<div class="row g-3">
+  {% for u in usage_rows %}
+  {% set r = u.row %}
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-1">
+          <h2 class="h5 mb-0">{{ r.agent_name }}</h2>
+          <span class="small text-muted">{{ r.plan_name or "No plan chosen" }}</span>
+        </div>
+        <div class="small text-muted mb-3">
+          Cycle: {{ u.cycle_start.strftime('%b %d') }} – {{ u.cycle_end.strftime('%b %d, %Y') }}
+        </div>
+
+        {% if r.pricing_model == 'flat_monthly' and r.included_units_per_cycle %}
+        <div class="d-flex justify-content-between small mb-1">
+          <span>{{ u.used }} of {{ r.included_units_per_cycle }} included queries used</span>
+          <span>{{ u.pct }}%</span>
+        </div>
+        <div class="progress mb-2" style="height: 8px;">
+          <div class="progress-bar {{ 'bg-danger' if u.pct >= 100 else ('bg-warning' if u.pct >= 90 else 'bg-success') }}"
+               role="progressbar" style="width: {{ [u.pct, 100] | min }}%;"></div>
+        </div>
+        {% if u.pct >= 100 and r.overage_unit_fee %}
+        <p class="small text-danger mb-0">Over the included amount — additional queries are billed at {{ r.currency or "USD" }} {{ "%.2f"|format(r.overage_unit_fee) }} each.</p>
+        {% elif u.pct >= 90 %}
+        <p class="small text-warning mb-0">Approaching your included amount for this cycle.</p>
+        {% endif %}
+        {% elif r.pricing_model == 'per_transaction' %}
+        <div class="small">{{ u.used }} {{ 'query' if u.used == 1 else 'queries' }} this cycle, billed at {{ r.currency or "USD" }} {{ "%.2f"|format(r.per_transaction_fee) if r.per_transaction_fee else "—" }} each.</div>
+        {% else %}
+        <div class="small text-muted">{{ u.used }} {{ 'query' if u.used == 1 else 'queries' }} this cycle. No pricing plan has been chosen yet — contact your System Admin.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <p class="text-muted text-center py-5">No agents are approved for your organization yet — see the Agents Library.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

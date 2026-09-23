@@ -23,7 +23,7 @@ from datetime import datetime
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, session, url_for
 
-from auth.decorators import login_required, tenant_admin_required
+from auth.decorators import login_required, system_admin_required, tenant_admin_required
 from security.passwords import hash_password, verify_password
 from config import Config
 from db import close_db, get_db, log_action
@@ -36,7 +36,8 @@ system_mgmt_bp = Blueprint("system_mgmt", __name__)
 def index():
     db = get_db()
     tenant_row = db.execute(
-        "SELECT tenant_name, data_retention_days, last_purge_at, created_at FROM tenants WHERE tenant_id = ?",
+        "SELECT tenant_name, account_number, data_retention_days, last_purge_at, created_at, "
+        "address_street, address_city, address_state, address_postal_code FROM tenants WHERE tenant_id = ?",
         (g.tenant_id,),
     ).fetchone()
     last_backup_row = db.execute("SELECT MAX(created_at) c FROM backups").fetchone()
@@ -88,10 +89,14 @@ def change_password():
             return render_template("system/change_password.html")
 
         db.execute(
-            "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE user_id = ?",
+            "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = datetime('now') WHERE user_id = ?",
             (hash_password(new_password), g.user_id),
         )
         db.commit()
+        # Clear the session-side copy too (see auth/decorators.py's
+        # login_required) -- otherwise the next page load would still see
+        # the stale flag and bounce right back here.
+        session["must_change_password"] = False
         log_action("PasswordChange", "users", g.user_id, "Password changed from System Management")
         flash("Password changed.", "success")
         return redirect(url_for("system_mgmt.index"))
@@ -100,16 +105,18 @@ def change_password():
 
 
 # Backups, restore, and the raw database health check touch the WHOLE
-# database file (every tenant's data lives in the one SQLite file), so they
-# stay gated to admin roles (TenantAdmin or SystemAdmin) rather than any
-# logged-in user. In Phase 1's single-tenant desktop deployment the Tenant
-# Admin is effectively the sole operator, so tenant_admin_required is used
-# here rather than a stricter system_admin_required — tighten this once a
-# real multi-tenant deployment introduces a dedicated SystemAdmin/ops role
-# distinct from each tenant's own admin.
+# database file (every tenant's data lives in the one SQLite file) — a
+# TenantAdmin restoring a backup would silently roll back every OTHER
+# tenant's data too, and archive_audit_log/download_audit_archive below
+# sweep every tenant's audit trail in one run for the same reason. These
+# were tenant_admin_required in Phase 1's single-tenant desktop deployment,
+# where the Tenant Admin was effectively the sole operator; now that real
+# multi-tenant hosting is in place (Stage 2 — see GSS_Data_Model_Decisions_v1.md's
+# "known gap" note), they're system_admin_required instead, so no tenant's
+# own admin can touch another tenant's data through these screens.
 
 @system_mgmt_bp.route("/health")
-@tenant_admin_required
+@system_admin_required
 def health():
     db = get_db()
     integrity = db.execute("PRAGMA integrity_check").fetchall()
@@ -158,7 +165,7 @@ def audit_log():
 
 
 @system_mgmt_bp.route("/audit-log/archive", methods=["POST"])
-@tenant_admin_required
+@system_admin_required
 def archive_audit_log():
     """Move audit_log entries older than 1 year out to a CSV file, then
     delete them from the live table, so the table itself stays bounded
@@ -211,7 +218,7 @@ def archive_audit_log():
 
 
 @system_mgmt_bp.route("/audit-log/archive/<int:archive_id>/download")
-@tenant_admin_required
+@system_admin_required
 def download_audit_archive(archive_id):
     db = get_db()
     a = db.execute("SELECT * FROM audit_log_archives WHERE archive_id = ?", (archive_id,)).fetchone()
@@ -430,7 +437,7 @@ def _write_backup_file(db, file_name):
 
 
 @system_mgmt_bp.route("/backups")
-@tenant_admin_required
+@system_admin_required
 def backups_index():
     db = get_db()
     rows = db.execute("SELECT * FROM backups ORDER BY backup_id DESC").fetchall()
@@ -439,7 +446,7 @@ def backups_index():
 
 
 @system_mgmt_bp.route("/backups/create", methods=["POST"])
-@tenant_admin_required
+@system_admin_required
 def create_backup():
     db = get_db()
     file_name = f"gss_backup_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.db"
@@ -461,7 +468,7 @@ def create_backup():
 
 
 @system_mgmt_bp.route("/backups/<int:backup_id>/download")
-@tenant_admin_required
+@system_admin_required
 def download_backup(backup_id):
     db = get_db()
     b = db.execute("SELECT * FROM backups WHERE backup_id = ?", (backup_id,)).fetchone()
@@ -471,7 +478,7 @@ def download_backup(backup_id):
 
 
 @system_mgmt_bp.route("/backups/<int:backup_id>/restore", methods=["POST"])
-@tenant_admin_required
+@system_admin_required
 def restore_backup(backup_id):
     db = get_db()
     b = db.execute("SELECT * FROM backups WHERE backup_id = ?", (backup_id,)).fetchone()
@@ -529,7 +536,7 @@ def restore_backup(backup_id):
 
 
 @system_mgmt_bp.route("/backups/<int:backup_id>/delete", methods=["POST"])
-@tenant_admin_required
+@system_admin_required
 def delete_backup(backup_id):
     db = get_db()
     b = db.execute("SELECT * FROM backups WHERE backup_id = ?", (backup_id,)).fetchone()

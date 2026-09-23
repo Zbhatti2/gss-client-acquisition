@@ -117,14 +117,64 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE tenants (
     tenant_id       INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_code     TEXT NOT NULL UNIQUE,    -- short slug, e.g. 'ACME' — internal identifier (exports, future subdomains), not shown as "the" name to end users
-    tenant_name     TEXT NOT NULL,           -- display name, e.g. 'Acme Corp'
+    -- Permanent, auto-generated, numeric billing/account identifier --
+    -- deliberately a SEPARATE field from tenant_code above, never
+    -- repurposed from it: tenant_code is a human-readable text slug chosen
+    -- for internal readability, while account_number must be numeric,
+    -- mechanically generated (no human judgment involved) and gap-free in
+    -- intent. NULL only transiently, for a row inserted before this column
+    -- existed and not yet backfilled (see db.py's
+    -- _migration_backfill_tenant_account_numbers) -- every tenant created
+    -- through the app (provision_tenant(), seed_first_tenant()) gets one
+    -- immediately. Always assigned via db.py's next_account_number(), which
+    -- draws from the dedicated tenant_account_number_seq counter below --
+    -- NEVER derived from MAX(account_number)+1 or from tenant_id, both of
+    -- which would let a deleted tenant's number be handed to someone else.
+    -- 10000001 is permanently reserved for the "GSS Platform" reserved
+    -- tenant row (see db.py's _migration_create_platform_tenant); real
+    -- tenants start at 10000002. Business rule this exists to support (no
+    -- delete-tenant feature exists yet, so nothing enforces this today, but
+    -- the numbering already assumes it): a tenant with ANY activity can
+    -- only ever be suspended, never deleted -- so a number can only ever
+    -- become eligible for deletion if the tenant never did anything, and
+    -- even then the counter still won't reuse it.
+    account_number  INTEGER UNIQUE,
+    tenant_name     TEXT NOT NULL,           -- display name, e.g. 'Granite Signal Systems'
+    -- True only for the single reserved "GSS Platform" row (account_number
+    -- 10000001) -- never a real customer, holds no users, never shown in
+    -- Tenant Management's list, and never suspendable/toggleable (see
+    -- blueprints/tenants_admin.py's list_tenants()/toggle_status()). A
+    -- dedicated flag rather than matching on tenant_code everywhere, so
+    -- every check stays correct even if that code is ever renamed.
+    is_platform     INTEGER NOT NULL DEFAULT 0,
     status          TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Suspended')),
     dek_wrapped     BLOB NOT NULL,           -- Fernet(system tenant-master-key).encrypt(tenant DEK) — see security/crypto.py + config.get_tenant_master_key()
     data_retention_days INTEGER DEFAULT NULL, -- days from a record's date of entry (created_at) until purge-eligible; NULL = indefinite (never auto-purge). Per-tenant.
     last_purge_at   TEXT,                    -- last time this tenant's purge check actually ran (once/day, checked at login), regardless of whether anything was purged
+    -- The tenant's own registered/mailing address -- one single flat address
+    -- (not multi-valued, no history), shown on System Management > Account.
+    -- Same flat street/city/state/postal_code shape as organizations' Main
+    -- Address quick fields, for the same reason: this is a one-off display
+    -- field, not something that needs the full Region/Country/Province/
+    -- City geography cascade addresses/organization_addresses use.
+    address_street  TEXT,
+    address_city    TEXT,
+    address_state   TEXT,
+    address_postal_code TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Dedicated, monotonically-increasing counter behind tenants.account_number
+-- (see db.py's next_account_number()). A single row, always id=1. Kept as
+-- its own tiny table rather than folded into tenants so it survives and
+-- keeps counting regardless of which tenant rows get inserted or (per the
+-- business rule above) eventually deleted.
+CREATE TABLE tenant_account_number_seq (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    next_value      INTEGER NOT NULL
+);
+INSERT INTO tenant_account_number_seq (id, next_value) VALUES (1, 10000001);
 
 CREATE TABLE users (
     user_id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +193,195 @@ CREATE TABLE users (
     CHECK ( (role = 'SystemAdmin' AND tenant_id IS NULL) OR (role IN ('TenantAdmin','User') AND tenant_id IS NOT NULL) )
 );
 CREATE INDEX idx_users_tenant ON users(tenant_id);
+
+-- ============================================================================
+-- MODULE AGENTS — AGENTS LIBRARY, MODELS &amp; BILLING
+--
+-- A platform-wide catalog of optional AI-powered "agents" (today: the two
+-- AI-import features under Data Exchange / Organizations). A tenant does
+-- not get an agent automatically -- it shows up locked in their Agents
+-- Library screen until a TenantAdmin requests it and a SystemAdmin
+-- approves it (see blueprints/agents.py, agents.py's agent_access_required
+-- decorator) -- UNLESS the agent is a tenant-scoped "custom agent"
+-- (agents_library.tenant_id set), which is auto-approved instead (see
+-- blueprints/agents.py's request_access()).
+--
+-- ai_providers / ai_models / ai_model_rates is the model catalog each
+-- agent runs on, with a dated cost-rate history so a profit/loss
+-- computation for a past call always uses the rate that was really in
+-- force then. agent_pricing_plans is what a tenant is actually charged
+-- (flat-monthly-with-included-units-and-overage, or per-transaction);
+-- tenant_agents.pricing_plan_id records which plan a tenant is on.
+-- tenant_model_credentials holds a tenant's own provider API key,
+-- encrypted under that tenant's DEK (security/crypto.py), for a model
+-- that requires one -- independent of which pricing plan the tenant is
+-- on. agent_usage_log is the append-only actual-usage record billing is
+-- computed from: see agent_billing.py for the cost/cap math, and the
+-- design rationale in the project doc
+-- claude/GSS_Agents_Billing_Architecture_v1.md.
+-- ============================================================================
+
+-- GLOBAL (no tenant_id) -- the company behind a model. Anthropic today,
+-- room for other providers later.
+CREATE TABLE ai_providers (
+    provider_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_code   TEXT NOT NULL UNIQUE,    -- e.g. 'ANTHROPIC'
+    name            TEXT NOT NULL,           -- e.g. 'Anthropic'
+    is_active       INTEGER NOT NULL DEFAULT 1
+);
+
+-- GLOBAL -- the catalog of models an agent can run on.
+CREATE TABLE ai_models (
+    model_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id     INTEGER NOT NULL REFERENCES ai_providers(provider_id),
+    model_code      TEXT NOT NULL UNIQUE,    -- e.g. 'claude-sonnet-5' -- matches CLAUDE_IMPORT_MODEL / the model string sent to the provider's API
+    display_name    TEXT NOT NULL,           -- e.g. 'Claude Sonnet 5'
+    requires_tenant_api_key INTEGER NOT NULL DEFAULT 0,  -- 0: runs on the platform's own shared ANTHROPIC_API_KEY; 1: a tenant must supply their own key (tenant_model_credentials) to use this model
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    sort_order      INTEGER DEFAULT 0
+);
+CREATE INDEX idx_ai_models_provider ON ai_models(provider_id);
+
+-- GLOBAL -- dated cost history for a model. The rate in force at a given
+-- moment is the row with the latest effective_from <= that moment, for
+-- that model -- see agent_billing.py compute_cost(). A price change never
+-- rewrites a past agent_usage_log row's actual_cost, because that cost
+-- was computed and stored at the time, not recalculated later.
+CREATE TABLE ai_model_rates (
+    rate_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id        INTEGER NOT NULL REFERENCES ai_models(model_id),
+    effective_from  TEXT NOT NULL,           -- date (or datetime) this rate took effect
+    cost_per_1k_input_tokens  REAL NOT NULL,
+    cost_per_1k_output_tokens REAL NOT NULL,
+    currency        TEXT NOT NULL DEFAULT 'USD'
+);
+CREATE INDEX idx_ai_model_rates_model_effective ON ai_model_rates(model_id, effective_from);
+
+-- GLOBAL (no tenant_id) -- the catalog itself is platform-wide, same as
+-- regions/countries below; what's tenant-specific is whether a given
+-- tenant has been granted a given agent (tenant_agents, below). The one
+-- exception is a CUSTOM agent (tenant_id set below): still one row here,
+-- but visible/usable by only that one tenant.
+CREATE TABLE agents_library (
+    agent_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER REFERENCES tenants(tenant_id),  -- NULL: platform-wide agent, visible to every tenant (today's two agents). Set: a CUSTOM agent built for this one tenant only -- visible solely on their own Agents Library, and auto-approved on request rather than queued for SystemAdmin review.
+    agent_code      TEXT NOT NULL UNIQUE,    -- stable internal key, e.g. 'business_card_import' -- referenced from code, never shown to a user
+    name            TEXT NOT NULL,           -- e.g. 'AI Business Card Import'
+    description     TEXT,
+    category        TEXT,                    -- e.g. 'AI Import' -- free text, for grouping the library screen later
+    default_model_id INTEGER REFERENCES ai_models(model_id),  -- which ai_models row this agent runs on by default
+    sort_order      INTEGER DEFAULT 0,
+    is_active       INTEGER NOT NULL DEFAULT 1,  -- the platform can retire an agent from the catalog without deleting usage history
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_agents_library_tenant ON agents_library(tenant_id);
+
+-- What a tenant is charged to use an agent. One agent can offer more than
+-- one plan (e.g. a Basic and a Pro tier); a tenant's chosen plan is
+-- recorded on tenant_agents.pricing_plan_id. Two fee shapes:
+--   'flat_monthly'    -- flat_fee_amount per month, covering up to
+--                         included_units_per_cycle uses; overage_unit_fee
+--                         per extra use beyond that. GSS's policy (see
+--                         agent_billing.py) is to NEVER block a run once
+--                         the cap is crossed -- overage is billed, not
+--                         gated -- with a warning shown from 90% of the
+--                         cap onward.
+--   'per_transaction' -- no flat fee, per_transaction_fee charged per use.
+CREATE TABLE agent_pricing_plans (
+    plan_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id        INTEGER NOT NULL REFERENCES agents_library(agent_id),
+    plan_code       TEXT NOT NULL,           -- unique per agent, e.g. 'standard_monthly'
+    plan_name       TEXT NOT NULL,           -- e.g. 'Standard Monthly'
+    pricing_model   TEXT NOT NULL CHECK (pricing_model IN ('flat_monthly','per_transaction')),
+    flat_fee_amount REAL,                    -- flat_monthly only
+    included_units_per_cycle INTEGER,        -- flat_monthly only
+    overage_unit_fee REAL,                   -- flat_monthly only -- price per use beyond included_units_per_cycle
+    per_transaction_fee REAL,                -- per_transaction only
+    required_model_id INTEGER REFERENCES ai_models(model_id),  -- if set and that model requires_tenant_api_key, a tenant needs a tenant_model_credentials row before this plan will work for them
+    currency        TEXT NOT NULL DEFAULT 'USD',
+    effective_from  TEXT NOT NULL DEFAULT (date('now')),
+    effective_to    TEXT,                    -- NULL: current/open-ended
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (agent_id, plan_code)
+);
+CREATE INDEX idx_agent_pricing_plans_agent ON agent_pricing_plans(agent_id);
+
+-- One row per (tenant, agent) a tenant has ever requested. No row at all
+-- means "never requested" -- the library screen shows every catalog agent
+-- with whichever of these four states applies, defaulting to "not
+-- requested" when there's no row yet. Once Approved, pricing_plan_id /
+-- subscribed_at make this row double as the tenant's subscription record
+-- for that agent -- subscribed_at is also the monthly anchor date the
+-- usage cycle (and the 90% cap warning) counts from.
+CREATE TABLE tenant_agents (
+    tenant_agent_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    agent_id        INTEGER NOT NULL REFERENCES agents_library(agent_id),
+    status          TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested','Approved','Denied','Revoked')),
+    requested_by_user_id INTEGER REFERENCES users(user_id),
+    requested_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_by_user_id INTEGER REFERENCES users(user_id),  -- the SystemAdmin who approved/denied/revoked -- NULL while still Requested
+    decided_at      TEXT,
+    notes           TEXT,
+    pricing_plan_id INTEGER REFERENCES agent_pricing_plans(plan_id),  -- which plan this tenant is billed under; NULL until one is chosen
+    subscribed_at   TEXT,                    -- when pricing_plan_id was (last) set
+    UNIQUE (tenant_id, agent_id)
+);
+CREATE INDEX idx_tenant_agents_tenant ON tenant_agents(tenant_id);
+CREATE INDEX idx_tenant_agents_agent ON tenant_agents(agent_id);
+
+-- A tenant's own provider API key/credential, for an agent/model that
+-- requires one (ai_models.requires_tenant_api_key). Scoped to PROVIDER,
+-- not model -- one Anthropic key covers every Anthropic model, same as
+-- the platform's own shared ANTHROPIC_API_KEY does today. The key itself
+-- is encrypted under the tenant's own DEK (security/crypto.py), the same
+-- mechanism GSS already uses for every other encrypted field, so it's
+-- never readable outside a logged-in session for that tenant.
+--
+-- Only one credential may be ACTIVE per (tenant, provider) at a time --
+-- enforced by the partial unique index below, not a table-level UNIQUE --
+-- so a tenant can hold an inactive spare (a rotated-out key kept for
+-- reference, or a not-yet-activated replacement) without violating it;
+-- supporting true overlapping key rotation later means only dropping that
+-- index, not a schema change.
+CREATE TABLE tenant_model_credentials (
+    credential_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    provider_id     INTEGER NOT NULL REFERENCES ai_providers(provider_id),
+    api_key_wrapped BLOB NOT NULL,           -- Fernet-encrypted under this tenant's DEK -- see security/crypto.py encrypt_value/decrypt_value
+    label           TEXT,                    -- tenant's own nickname, e.g. 'Production key'
+    added_by_user_id INTEGER REFERENCES users(user_id),
+    added_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    last_used_at    TEXT,
+    notes           TEXT
+);
+CREATE INDEX idx_tenant_model_credentials_tenant ON tenant_model_credentials(tenant_id);
+CREATE UNIQUE INDEX idx_tenant_model_credentials_active ON tenant_model_credentials(tenant_id, provider_id) WHERE is_active = 1;
+
+-- Append-only usage record -- one row per successful agent invocation
+-- (e.g. one business-card extraction, one ad photo extracted). "units"
+-- defaults to 1 (one call = one unit) and is what counts against a
+-- tenant's plan cap / per-transaction fee. tokens_input/tokens_output/
+-- actual_cost/model_id/credential_id carry the real cost numbers a
+-- profit/loss report needs -- see agent_billing.py record_usage() and
+-- compute_cost().
+CREATE TABLE agent_usage_log (
+    usage_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    agent_id        INTEGER NOT NULL REFERENCES agents_library(agent_id),
+    user_id         INTEGER REFERENCES users(user_id),
+    used_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    units           INTEGER NOT NULL DEFAULT 1,
+    detail          TEXT,
+    model_id        INTEGER REFERENCES ai_models(model_id),        -- which model actually served this call; NULL for a call made before this column existed
+    credential_id   INTEGER REFERENCES tenant_model_credentials(credential_id),  -- which of the tenant's own keys was used; NULL means the platform's shared key
+    tokens_input    INTEGER,                 -- from the provider's response
+    tokens_output   INTEGER,
+    actual_cost     REAL                     -- tokens x the ai_model_rates row in force at used_at
+);
+CREATE INDEX idx_agent_usage_log_tenant_agent ON agent_usage_log(tenant_id, agent_id);
+CREATE INDEX idx_agent_usage_log_used_at ON agent_usage_log(used_at);
 
 -- ============================================================================
 -- MODULE E — SYSTEM TABLES (lookup / reference data)
@@ -985,3 +1224,466 @@ CREATE TABLE backups (
     notes           TEXT
 );
 CREATE INDEX idx_backups_created ON backups(created_at DESC);
+
+-- ============================================================================
+-- TENANT ISOLATION — cross-tenant foreign-key guards
+--
+-- PRAGMA foreign_keys = ON already guarantees a referenced row EXISTS, but
+-- not that it belongs to the same tenant as the row pointing at it. Every
+-- route that saves one of these foreign keys already renders its picker
+-- from a tenant-scoped query, so this should never fire in normal use — it
+-- exists as a hard backstop against a form-submitted id for another
+-- tenant's row (whether from a bug, a hand-crafted request, or a future
+-- route that forgets the WHERE tenant_id = ? clause). A URL-path-segment id
+-- (e.g. /organizations/<org_id>) is a different, already-covered case —
+-- every route that takes one filters its lookup by tenant_id itself; these
+-- triggers cover the id-picked-from-a-dropdown case instead.
+--
+-- Covers every relationship Table Maintenance manages (see
+-- blueprints/table_maintenance.py TABLES) plus the highest-value
+-- entity-level pickers (a Contact's Organization/Assistant, a Content
+-- item's linked Contact). Not exhaustive of every foreign key in this
+-- schema — organization_id/content_id-style columns that are always taken
+-- from a URL path segment are intentionally left alone, since those are
+-- already tenant-checked at the route level.
+-- ============================================================================
+
+CREATE TRIGGER trg_tenant_fk_contacts_contact_category_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.contact_category_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.contact_category_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_categories
+        WHERE contact_category_id = NEW.contact_category_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_contact_category_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.contact_category_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.contact_category_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_categories
+        WHERE contact_category_id = NEW.contact_category_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_title_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.title_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.title_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_titles
+        WHERE contact_title_id = NEW.title_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_title_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.title_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.title_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_titles
+        WHERE contact_title_id = NEW.title_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_suffix_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.suffix_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.suffix_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_suffixes
+        WHERE contact_suffix_id = NEW.suffix_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_suffix_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.suffix_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.suffix_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_suffixes
+        WHERE contact_suffix_id = NEW.suffix_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_profession_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.profession_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.profession_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM professions
+        WHERE profession_id = NEW.profession_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_profession_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.profession_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.profession_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM professions
+        WHERE profession_id = NEW.profession_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_context_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.context_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.context_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_contexts
+        WHERE contact_context_id = NEW.context_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_context_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.context_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.context_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contact_contexts
+        WHERE contact_context_id = NEW.context_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_organization_type_id_ins
+BEFORE INSERT ON organizations
+WHEN NEW.organization_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.organization_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_types
+        WHERE organization_type_id = NEW.organization_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_organization_type_id_upd
+BEFORE UPDATE ON organizations
+WHEN NEW.organization_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.organization_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_types
+        WHERE organization_type_id = NEW.organization_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organization_addresses_address_type_id_ins
+BEFORE INSERT ON organization_addresses
+WHEN NEW.address_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organization_addresses.address_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_address_types
+        WHERE address_type_id = NEW.address_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organization_addresses_address_type_id_upd
+BEFORE UPDATE ON organization_addresses
+WHEN NEW.address_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organization_addresses.address_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_address_types
+        WHERE address_type_id = NEW.address_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organization_phones_phone_type_id_ins
+BEFORE INSERT ON organization_phones
+WHEN NEW.phone_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organization_phones.phone_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_phone_types
+        WHERE phone_type_id = NEW.phone_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organization_phones_phone_type_id_upd
+BEFORE UPDATE ON organization_phones
+WHEN NEW.phone_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organization_phones.phone_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_phone_types
+        WHERE phone_type_id = NEW.phone_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_knowledge_domains_knowledge_domain_id_ins
+BEFORE INSERT ON content_knowledge_domains
+WHEN NEW.knowledge_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_knowledge_domains.knowledge_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_domains
+        WHERE knowledge_domain_id = NEW.knowledge_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_knowledge_domains_knowledge_domain_id_upd
+BEFORE UPDATE ON content_knowledge_domains
+WHEN NEW.knowledge_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_knowledge_domains.knowledge_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_domains
+        WHERE knowledge_domain_id = NEW.knowledge_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_content_type_id_ins
+BEFORE INSERT ON content
+WHEN NEW.content_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content.content_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM content_types
+        WHERE content_type_id = NEW.content_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_content_type_id_upd
+BEFORE UPDATE ON content
+WHEN NEW.content_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content.content_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM content_types
+        WHERE content_type_id = NEW.content_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_contact_links_link_type_id_ins
+BEFORE INSERT ON content_contact_links
+WHEN NEW.link_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_contact_links.link_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM content_link_types
+        WHERE content_link_type_id = NEW.link_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_contact_links_link_type_id_upd
+BEFORE UPDATE ON content_contact_links
+WHEN NEW.link_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_contact_links.link_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM content_link_types
+        WHERE content_link_type_id = NEW.link_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_size_category_id_ins
+BEFORE INSERT ON organizations
+WHEN NEW.size_category_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.size_category_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_size_categories
+        WHERE size_category_id = NEW.size_category_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_size_category_id_upd
+BEFORE UPDATE ON organizations
+WHEN NEW.size_category_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.size_category_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_size_categories
+        WHERE size_category_id = NEW.size_category_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_organization_domain_id_ins
+BEFORE INSERT ON organizations
+WHEN NEW.organization_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.organization_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_domains
+        WHERE organization_domain_id = NEW.organization_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_organization_domain_id_upd
+BEFORE UPDATE ON organizations
+WHEN NEW.organization_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.organization_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_domains
+        WHERE organization_domain_id = NEW.organization_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_organization_subdomain_id_ins
+BEFORE INSERT ON organizations
+WHEN NEW.organization_subdomain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.organization_subdomain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_subdomains
+        WHERE organization_subdomain_id = NEW.organization_subdomain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organizations_organization_subdomain_id_upd
+BEFORE UPDATE ON organizations
+WHEN NEW.organization_subdomain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organizations.organization_subdomain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_subdomains
+        WHERE organization_subdomain_id = NEW.organization_subdomain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_knowledge_subdomains_knowledge_domain_id_ins
+BEFORE INSERT ON knowledge_subdomains
+WHEN NEW.knowledge_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_subdomains.knowledge_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_domains
+        WHERE knowledge_domain_id = NEW.knowledge_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_knowledge_subdomains_knowledge_domain_id_upd
+BEFORE UPDATE ON knowledge_subdomains
+WHEN NEW.knowledge_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_subdomains.knowledge_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM knowledge_domains
+        WHERE knowledge_domain_id = NEW.knowledge_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_subtypes_content_type_id_ins
+BEFORE INSERT ON content_subtypes
+WHEN NEW.content_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_subtypes.content_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM content_types
+        WHERE content_type_id = NEW.content_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_subtypes_content_type_id_upd
+BEFORE UPDATE ON content_subtypes
+WHEN NEW.content_type_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_subtypes.content_type_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM content_types
+        WHERE content_type_id = NEW.content_type_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organization_subdomains_organization_domain_id_ins
+BEFORE INSERT ON organization_subdomains
+WHEN NEW.organization_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organization_subdomains.organization_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_domains
+        WHERE organization_domain_id = NEW.organization_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_organization_subdomains_organization_domain_id_upd
+BEFORE UPDATE ON organization_subdomains
+WHEN NEW.organization_domain_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'organization_subdomains.organization_domain_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organization_domains
+        WHERE organization_domain_id = NEW.organization_domain_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_current_organization_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.current_organization_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.current_organization_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organizations
+        WHERE organization_id = NEW.current_organization_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_current_organization_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.current_organization_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.current_organization_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organizations
+        WHERE organization_id = NEW.current_organization_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_assistant_contact_id_ins
+BEFORE INSERT ON contacts
+WHEN NEW.assistant_contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.assistant_contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.assistant_contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_contacts_assistant_contact_id_upd
+BEFORE UPDATE ON contacts
+WHEN NEW.assistant_contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'contacts.assistant_contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.assistant_contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_contact_links_contact_id_ins
+BEFORE INSERT ON content_contact_links
+WHEN NEW.contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_contact_links.contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_content_contact_links_contact_id_upd
+BEFORE UPDATE ON content_contact_links
+WHEN NEW.contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'content_contact_links.contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
+    );
+END;

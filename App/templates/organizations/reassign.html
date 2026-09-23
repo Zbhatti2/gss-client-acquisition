@@ -1,27 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Reassign "{{ org.organization_name }}"{% endblock %}
+{% block title %}Merge "{{ org.organization_name }}"{% endblock %}
 {% block content %}
-<h1 class="h4 mb-1">Merge / Reassign</h1>
-<p class="text-muted">Move every record currently linked to <strong>{{ org.organization_name }}</strong> over to a different organization.</p>
+<h1 class="h4 mb-1">Merge Organizations</h1>
+<p class="text-muted">
+  <strong>{{ org.organization_name }}</strong> is the organization being absorbed ("Other"). Choose the
+  Parent organization below to merge it into.
+</p>
 
-<div class="card shadow-sm border-0" style="max-width: 640px;">
+<div class="card shadow-sm border-0" style="max-width: 680px;">
   <div class="card-body">
+    <p class="small mb-3">
+      Everything "{{ org.organization_name }}" has — its addresses, phone numbers, emails, reference
+      links, ad listings, and every contact currently linked to it (their business cards travel with
+      them) — will be moved onto the Parent you choose. Anything that's already an exact duplicate on
+      the Parent is skipped rather than added twice. The Parent's Main Address/Phone/Fax/Email/Website
+      and classification fields are filled in from "{{ org.organization_name }}" only where the Parent's
+      own are still blank, and its Notes are appended rather than lost. The <strong>only</strong> thing
+      never copied over is "{{ org.organization_name }}"'s own name — the Parent keeps its name.
+    </p>
     {% if usage_count %}
-    <p class="mb-2">Currently linked to <strong>{{ usage_count }}</strong> record{{ 's' if usage_count != 1 else '' }}:</p>
+    <p class="mb-2">"{{ org.organization_name }}" is currently linked to <strong>{{ usage_count }}</strong> record{{ 's' if usage_count != 1 else '' }}:</p>
     <ul class="small mb-3">
       {% for b in usage_breakdown %}
       <li>{{ b.count }} {{ b.label }}</li>
       {% endfor %}
     </ul>
-    {% else %}
-    <p class="text-muted small mb-3">"{{ org.organization_name }}" isn't currently linked to any records — you can still merge it into another organization, or just delete it directly from the list instead.</p>
     {% endif %}
 
     {% if others %}
     <form method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
-        <label class="form-label">Reassign to</label>
+        <label class="form-label">Parent organization (kept, absorbs everything)</label>
         <select class="form-select" name="target_id" required>
           <option value="">Choose an organization…</option>
           {% for o in others %}
@@ -31,15 +41,15 @@
       </div>
       <div class="form-check mb-3">
         <input class="form-check-input" type="checkbox" name="also_delete" id="also_delete" checked>
-        <label class="form-check-label" for="also_delete">Delete "{{ org.organization_name }}" after reassigning</label>
+        <label class="form-check-label" for="also_delete">Delete "{{ org.organization_name }}" after merging</label>
       </div>
       <div class="d-flex gap-2 justify-content-end">
         <a href="{{ url_for('organizations.list_organizations') }}" class="btn btn-outline-secondary">Cancel</a>
-        <button class="btn btn-primary" type="submit">Reassign</button>
+        <button class="btn btn-primary" type="submit">Merge</button>
       </div>
     </form>
     {% else %}
-    <p class="text-muted small mb-0">There's no other organization to reassign to yet — add one first.</p>
+    <p class="text-muted small mb-0">There's no other organization to merge into yet — add one first.</p>
     {% endif %}
   </div>
 </div>

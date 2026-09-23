@@ -1,0 +1,9 @@
+{# Shared, tiny Jinja helpers. Currently just the Help button every form's
+   header drops in to open the contextual help drawer at a specific page —
+   see templates/_help_drawer.html and static/js/help.js. #}
+
+{% macro help_button(help_id) -%}
+<button type="button" class="btn btn-outline-secondary btn-sm gss-help-btn" data-help-id="{{ help_id }}" title="Help" aria-label="Help">
+  <i class="bi bi-question-circle"></i>
+</button>
+{%- endmacro %}

@@ -225,7 +225,15 @@ def manage(table_key):
             where.append("t.label LIKE ?")
             params.append(like)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
-    order = f"p.{cfg['parent']['label_field']}, t.sort_order, t.label" if cfg.get("parent") else "t.sort_order, t.label"
+    # Alphabetical by Label, same as every dropdown/picker elsewhere in the
+    # app that lists these geography lookups (see contacts.py) — so a
+    # freshly added entry takes its place immediately instead of sitting
+    # wherever sort_order's default of 0 puts it (see table_maintenance.py's
+    # matching comment for the tenant-scoped lookup tables).
+    order = (
+        f"p.{cfg['parent']['label_field']} COLLATE NOCASE, t.label COLLATE NOCASE"
+        if cfg.get("parent") else "t.label COLLATE NOCASE"
+    )
     sql = f"SELECT {select_cols} FROM {cfg['table']} t{joins}{where_sql} ORDER BY {order}"
     rows = db.execute(sql, params).fetchall()
 

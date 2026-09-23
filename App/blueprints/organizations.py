@@ -25,6 +25,7 @@ import zipfile
 from flask import Blueprint, abort, flash, g, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 from ad_import import AD_TYPES, ExtractionError, extract_ads_from_image, iter_images_from_zip
+from agents import agent_access_required, log_agent_usage
 from auth.decorators import login_required
 from config import Config
 from db import get_db, log_action
@@ -74,16 +75,36 @@ def _org_phone_types(db):
     ).fetchall()
 
 
-def _delete_org_ad_listings(db, org_id):
-    """Removes every Ad Listing (and its price history/notes/photos, plus
-    the underlying photo files on disk) belonging to org_id. Used when the
-    organization itself is deleted or merged away — an Ad Listing is an
-    owned record like an address or reference link (see this module's
-    docstring), not something that blocks the delete."""
-    ad_ids = [r["ad_listing_id"] for r in db.execute(
-        "SELECT ad_listing_id FROM organization_ad_listings WHERE organization_id = ? AND tenant_id = ?",
-        (org_id, g.tenant_id),
-    ).fetchall()]
+def _org_domains(db):
+    return db.execute(
+        "SELECT * FROM organization_domains WHERE is_active = 1 AND tenant_id = ? ORDER BY label COLLATE NOCASE",
+        (g.tenant_id,),
+    ).fetchall()
+
+
+def _org_subdomains(db, domain_id=None):
+    """Every active SubDomain, or (when domain_id is given) only the ones
+    under that Domain — used both by the list page's SubDomain filter
+    (narrowed to the currently-selected Domain filter, same as the New/Edit
+    form's cascade in classification_tree/organization_classification.js)
+    and anywhere else a plain non-cascading list will do."""
+    if domain_id:
+        return db.execute(
+            "SELECT * FROM organization_subdomains WHERE is_active = 1 AND tenant_id = ? "
+            "AND organization_domain_id = ? ORDER BY label COLLATE NOCASE",
+            (g.tenant_id, domain_id),
+        ).fetchall()
+    return db.execute(
+        "SELECT * FROM organization_subdomains WHERE is_active = 1 AND tenant_id = ? ORDER BY label COLLATE NOCASE",
+        (g.tenant_id,),
+    ).fetchall()
+
+
+def _delete_ad_listings_by_ids(db, ad_ids):
+    """Removes the given Ad Listings (and each one's price history/notes/
+    photos, plus the underlying photo files on disk). Shared by the
+    whole-organization delete path (_delete_org_ad_listings) and the merge
+    feature's per-listing duplicate cleanup (_merge_organizations) below."""
     for ad_id in ad_ids:
         for row in db.execute(
             "SELECT image_path FROM organization_ad_photos WHERE ad_listing_id = ? AND tenant_id = ?",
@@ -96,7 +117,304 @@ def _delete_org_ad_listings(db, org_id):
         db.execute("DELETE FROM organization_ad_photos WHERE ad_listing_id = ? AND tenant_id = ?", (ad_id, g.tenant_id))
         db.execute("DELETE FROM organization_ad_notes WHERE ad_listing_id = ? AND tenant_id = ?", (ad_id, g.tenant_id))
         db.execute("DELETE FROM organization_ad_price_history WHERE ad_listing_id = ? AND tenant_id = ?", (ad_id, g.tenant_id))
-    db.execute("DELETE FROM organization_ad_listings WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id))
+    if ad_ids:
+        db.execute(
+            f"DELETE FROM organization_ad_listings WHERE tenant_id = ? AND ad_listing_id IN "
+            f"({','.join('?' * len(ad_ids))})",
+            (g.tenant_id, *ad_ids),
+        )
+
+
+def _delete_org_ad_listings(db, org_id):
+    """Removes every Ad Listing (and its price history/notes/photos, plus
+    the underlying photo files on disk) belonging to org_id. Used when the
+    organization itself is deleted — an Ad Listing is an owned record like
+    an address or reference link (see this module's docstring), not
+    something that blocks the delete."""
+    ad_ids = [r["ad_listing_id"] for r in db.execute(
+        "SELECT ad_listing_id FROM organization_ad_listings WHERE organization_id = ? AND tenant_id = ?",
+        (org_id, g.tenant_id),
+    ).fetchall()]
+    _delete_ad_listings_by_ids(db, ad_ids)
+
+
+# ---------------------------------------------------------------- merge
+#
+# Consolidates two Organization records — Parent (kept, absorbs everything)
+# and Other (absorbed, discarded once merged) — per the Merge feature's own
+# spec: every one of Other's addresses/emails/phones/reference
+# links/ad listings/contacts ends up on Parent, duplicates are skipped
+# rather than piling up as copies, and only Other's NAME is left behind.
+# _merge_organizations does the actual consolidation; reassign_organization
+# is the route/page that drives it (also still reachable, as before, from
+# a blocked delete).
+
+def _blank(value):
+    return value is None or (isinstance(value, str) and value.strip() == "")
+
+
+def _norm_text(value):
+    """Case/whitespace-insensitive comparison key for free-text fields —
+    "104 Old Winslow Road" and "104  old winslow road " are the same
+    address line for dedup purposes even though they're different strings."""
+    return " ".join((value or "").strip().split()).lower()
+
+
+def _digits_only(value):
+    """Comparison key for phone-number fragments — "(603) 555-1212" and
+    "603-555-1212" are the same number for dedup purposes regardless of
+    formatting."""
+    return re.sub(r"\D", "", value or "")
+
+
+def _address_signature(row):
+    """What makes two organization_addresses rows "the same address" for
+    merge dedup: every field that actually describes the location, in a
+    normalized form. address_type_id and is_primary are deliberately
+    excluded — the same street address tagged "Mailing" on one org and
+    "Billing" on the other is still a duplicate of the same physical
+    address, not two different ones."""
+    return (
+        _norm_text(row["street"]), _norm_text(row["unit"]),
+        row["country_id"], row["state_id"], _norm_text(row["state_province_text"]),
+        row["city_id"], _norm_text(row["city_text"]), _norm_text(row["postal_code"]),
+    )
+
+
+def _phone_signature(row):
+    return (
+        _digits_only(row["country_code"]), _digits_only(row["area_code"]),
+        _digits_only(row["number"]), _digits_only(row["extension"]),
+    )
+
+
+def _link_signature(row):
+    return (_norm_text(row["url"]), _norm_text(row["document_path"]))
+
+
+def _merge_organizations(db, parent_id, other_id):
+    """The consolidation behind the Merge feature: absorbs `other_id`
+    ("Other") into `parent_id` ("Parent"). Everything Other owns — its
+    addresses, emails, phones, reference links, ad listings (each with its
+    own price history/notes/photos, which travel automatically since those
+    key off ad_listing_id and that id doesn't change on a move), and every
+    contact currently pointing at it (business cards included — those are
+    columns directly on the contact row, not a separate table, so they
+    travel with the contact) — ends up on Parent. Anything that already
+    exists on Parent, compared on its meaningful content rather than its
+    row id or a type label, is left alone instead of being duplicated: see
+    _address_signature/_phone_signature/_link_signature above and
+    _find_ad_listing_by_headline (this module's existing durable ad match
+    key) below. A moved row that would leave two rows both marked "primary"
+    on Parent has its own primary flag cleared instead — Parent's existing
+    primary (if it already had one) always wins.
+
+    Parent's own Main Address/Phone/Fax/Email/Website/classification quick
+    fields (see schema.sql's note on organizations.street etc.) are filled
+    in from Other only where Parent's own copy is blank — Parent's existing
+    choices always win there too. Notes are concatenated rather than
+    fill-if-blank, since free text is rarely truly redundant and dropping
+    it on a delete would lose information that might exist nowhere else.
+    Only Other's NAME is never copied onto Parent — that's this feature's
+    one explicit exception, straight from the request that shaped it.
+
+    Returns a summary dict for the audit-log entry and flash message.
+    Leaves `other_id` itself in place (now with nothing left pointing at
+    or belonging to it) — reassign_organization decides whether to delete
+    it and commits once, atomically, after calling this.
+    """
+    summary = {
+        "contacts_moved": 0,
+        "addresses_moved": 0, "addresses_skipped": 0,
+        "emails_moved": 0, "emails_skipped": 0,
+        "phones_moved": 0, "phones_skipped": 0,
+        "links_moved": 0, "links_skipped": 0,
+        "ads_moved": 0, "ads_skipped": 0,
+    }
+
+    parent = db.execute(
+        "SELECT * FROM organizations WHERE organization_id = ? AND tenant_id = ?", (parent_id, g.tenant_id)
+    ).fetchone()
+    other = db.execute(
+        "SELECT * FROM organizations WHERE organization_id = ? AND tenant_id = ?", (other_id, g.tenant_id)
+    ).fetchone()
+
+    # --- Contacts (and, riding along on the contact row, business cards) ---
+    for ref in REFERENCES:
+        cur = db.execute(
+            f"UPDATE {ref['table']} SET {ref['fk']} = ? WHERE {ref['fk']} = ? AND tenant_id = ?",
+            (parent_id, other_id, g.tenant_id),
+        )
+        summary["contacts_moved"] += cur.rowcount
+
+    # --- Addresses ---
+    existing_addr_sigs = set()
+    parent_has_primary_address = False
+    for row in db.execute(
+        "SELECT * FROM organization_addresses WHERE organization_id = ? AND tenant_id = ?", (parent_id, g.tenant_id)
+    ).fetchall():
+        existing_addr_sigs.add(_address_signature(row))
+        if row["is_primary"]:
+            parent_has_primary_address = True
+    for row in db.execute(
+        "SELECT * FROM organization_addresses WHERE organization_id = ? AND tenant_id = ?", (other_id, g.tenant_id)
+    ).fetchall():
+        sig = _address_signature(row)
+        if sig in existing_addr_sigs:
+            db.execute(
+                "DELETE FROM organization_addresses WHERE organization_address_id = ? AND tenant_id = ?",
+                (row["organization_address_id"], g.tenant_id),
+            )
+            summary["addresses_skipped"] += 1
+            continue
+        make_primary = bool(row["is_primary"]) and not parent_has_primary_address
+        db.execute(
+            "UPDATE organization_addresses SET organization_id = ?, is_primary = ?, updated_at = datetime('now') "
+            "WHERE organization_address_id = ? AND tenant_id = ?",
+            (parent_id, 1 if make_primary else 0, row["organization_address_id"], g.tenant_id),
+        )
+        parent_has_primary_address = parent_has_primary_address or make_primary
+        existing_addr_sigs.add(sig)
+        summary["addresses_moved"] += 1
+
+    # --- Emails ---
+    existing_email_sigs = set()
+    parent_has_primary_email = False
+    for row in db.execute(
+        "SELECT * FROM organization_emails WHERE organization_id = ? AND tenant_id = ?", (parent_id, g.tenant_id)
+    ).fetchall():
+        existing_email_sigs.add(_norm_text(row["email_address"]))
+        if row["is_primary"]:
+            parent_has_primary_email = True
+    for row in db.execute(
+        "SELECT * FROM organization_emails WHERE organization_id = ? AND tenant_id = ?", (other_id, g.tenant_id)
+    ).fetchall():
+        sig = _norm_text(row["email_address"])
+        if sig in existing_email_sigs:
+            db.execute(
+                "DELETE FROM organization_emails WHERE organization_email_id = ? AND tenant_id = ?",
+                (row["organization_email_id"], g.tenant_id),
+            )
+            summary["emails_skipped"] += 1
+            continue
+        make_primary = bool(row["is_primary"]) and not parent_has_primary_email
+        db.execute(
+            "UPDATE organization_emails SET organization_id = ?, is_primary = ?, updated_at = datetime('now') "
+            "WHERE organization_email_id = ? AND tenant_id = ?",
+            (parent_id, 1 if make_primary else 0, row["organization_email_id"], g.tenant_id),
+        )
+        parent_has_primary_email = parent_has_primary_email or make_primary
+        existing_email_sigs.add(sig)
+        summary["emails_moved"] += 1
+
+    # --- Phones ---
+    existing_phone_sigs = set()
+    parent_has_primary_phone = False
+    for row in db.execute(
+        "SELECT * FROM organization_phones WHERE organization_id = ? AND tenant_id = ?", (parent_id, g.tenant_id)
+    ).fetchall():
+        existing_phone_sigs.add(_phone_signature(row))
+        if row["is_primary"]:
+            parent_has_primary_phone = True
+    for row in db.execute(
+        "SELECT * FROM organization_phones WHERE organization_id = ? AND tenant_id = ?", (other_id, g.tenant_id)
+    ).fetchall():
+        sig = _phone_signature(row)
+        if sig in existing_phone_sigs:
+            db.execute(
+                "DELETE FROM organization_phones WHERE organization_phone_id = ? AND tenant_id = ?",
+                (row["organization_phone_id"], g.tenant_id),
+            )
+            summary["phones_skipped"] += 1
+            continue
+        make_primary = bool(row["is_primary"]) and not parent_has_primary_phone
+        db.execute(
+            "UPDATE organization_phones SET organization_id = ?, is_primary = ?, updated_at = datetime('now') "
+            "WHERE organization_phone_id = ? AND tenant_id = ?",
+            (parent_id, 1 if make_primary else 0, row["organization_phone_id"], g.tenant_id),
+        )
+        parent_has_primary_phone = parent_has_primary_phone or make_primary
+        existing_phone_sigs.add(sig)
+        summary["phones_moved"] += 1
+
+    # --- Reference links ---
+    existing_link_sigs = {
+        _link_signature(row) for row in db.execute(
+            "SELECT * FROM organization_reference_links WHERE organization_id = ? AND tenant_id = ?",
+            (parent_id, g.tenant_id),
+        ).fetchall()
+    }
+    for row in db.execute(
+        "SELECT * FROM organization_reference_links WHERE organization_id = ? AND tenant_id = ?",
+        (other_id, g.tenant_id),
+    ).fetchall():
+        sig = _link_signature(row)
+        if sig in existing_link_sigs:
+            db.execute(
+                "DELETE FROM organization_reference_links WHERE link_id = ? AND tenant_id = ?",
+                (row["link_id"], g.tenant_id),
+            )
+            summary["links_skipped"] += 1
+            continue
+        db.execute(
+            "UPDATE organization_reference_links SET organization_id = ? WHERE link_id = ? AND tenant_id = ?",
+            (parent_id, row["link_id"], g.tenant_id),
+        )
+        existing_link_sigs.add(sig)
+        summary["links_moved"] += 1
+
+    # --- Ad listings — dedup on headline via the existing match key; a
+    # non-duplicate moves whole (its child rows follow for free), a
+    # duplicate is dropped via the shared cascade-delete helper. ---
+    dup_ad_ids = []
+    for row in db.execute(
+        "SELECT * FROM organization_ad_listings WHERE organization_id = ? AND tenant_id = ?",
+        (other_id, g.tenant_id),
+    ).fetchall():
+        if _find_ad_listing_by_headline(db, parent_id, row["headline"]):
+            dup_ad_ids.append(row["ad_listing_id"])
+            summary["ads_skipped"] += 1
+        else:
+            db.execute(
+                "UPDATE organization_ad_listings SET organization_id = ?, updated_at = datetime('now') "
+                "WHERE ad_listing_id = ? AND tenant_id = ?",
+                (parent_id, row["ad_listing_id"], g.tenant_id),
+            )
+            summary["ads_moved"] += 1
+    _delete_ad_listings_by_ids(db, dup_ad_ids)
+
+    # --- Organization's own Main Address/Phone/Fax/Email/Website and
+    # classification quick fields: fill Parent's blanks from Other; never
+    # touch Parent's name or anything Parent already has a value for. ---
+    fill_fields = [
+        "street", "city", "state", "postal_code", "full_address",
+        "phone", "fax", "email", "website",
+        "organization_type_id", "number_of_employees", "size_category_id",
+        "organization_domain_id", "organization_subdomain_id",
+    ]
+    set_clauses, params = [], []
+    for field in fill_fields:
+        if _blank(parent[field]) and not _blank(other[field]):
+            set_clauses.append(f"{field} = ?")
+            params.append(other[field])
+    if not _blank(other["notes"]):
+        today = db.execute("SELECT date('now') AS d").fetchone()["d"]
+        merged_notes = (
+            (parent["notes"].rstrip() + "\n\n" if not _blank(parent["notes"]) else "")
+            + f"-- Merged from \"{other['organization_name']}\" on {today} --\n"
+            + other["notes"]
+        )
+        set_clauses.append("notes = ?")
+        params.append(merged_notes)
+    if set_clauses:
+        set_clauses.append("updated_at = datetime('now')")
+        params.extend([parent_id, g.tenant_id])
+        db.execute(
+            f"UPDATE organizations SET {', '.join(set_clauses)} WHERE organization_id = ? AND tenant_id = ?",
+            params,
+        )
+
+    return summary
 
 
 def _int_or_none(value):
@@ -139,6 +457,8 @@ def list_organizations():
     type_id = request.args.get("type_id", "").strip()
     city = request.args.get("city", "").strip()
     country_id = request.args.get("country_id", "").strip()
+    domain_id = request.args.get("domain_id", "").strip()
+    subdomain_id = request.args.get("subdomain_id", "").strip()
     sql = """
         SELECT o.*, ot.label AS type_label,
                COALESCE(pc.label, pa.city_text) AS city_label,
@@ -192,6 +512,12 @@ def list_organizations():
     if country_id:
         sql += " AND pa.country_id = ?"
         params.append(country_id)
+    if domain_id:
+        sql += " AND o.organization_domain_id = ?"
+        params.append(domain_id)
+    if subdomain_id:
+        sql += " AND o.organization_subdomain_id = ?"
+        params.append(subdomain_id)
     sql += " ORDER BY o.organization_name"
     rows = db.execute(sql, params).fetchall()
 
@@ -215,6 +541,11 @@ def list_organizations():
     return render_template(
         "organizations/list.html", orgs=orgs, q=q, org_types=_org_types(db),
         type_id=type_id, city=city, country_id=country_id, country_options=country_options,
+        org_domains=_org_domains(db), domain_id=domain_id,
+        # Narrowed to the selected Domain (same cascade the New/Edit form
+        # uses), so if a Domain is chosen the SubDomain filter never offers
+        # an option that couldn't possibly match anything.
+        org_subdomains=_org_subdomains(db, domain_id or None), subdomain_id=subdomain_id,
     )
 
 
@@ -441,12 +772,16 @@ def delete_organization(org_id):
 @organizations_bp.route("/<int:org_id>/reassign", methods=["GET", "POST"])
 @login_required
 def reassign_organization(org_id):
-    """Bulk-move every contact/personal account/software license that
-    points at `org_id` over to a different organization, then optionally
-    delete the old one. This is also the tool for merging duplicate
-    organizations (e.g. "Acme Inc." vs "ACME, Inc." picked up from an
-    import), independent of any delete attempt — reachable directly from
-    the list as "Merge into..."."""
+    """The Merge feature. `org_id` is "Other" — the organization being
+    looked at, which the merge will absorb away — and the Parent it gets
+    merged into is chosen on the page. Full consolidation (addresses,
+    contacts + their business cards, phones, emails, reference links, ad
+    listings, duplicates ignored) is done by _merge_organizations; this
+    route just resolves Parent/Other, calls it, optionally deletes the
+    now-empty Other, and reports what happened. Also reachable from a
+    blocked delete (delete_organization redirects here when other records
+    still point at org_id) — merging into a Parent is how those get
+    cleared."""
     db = get_db()
     org = db.execute(
         "SELECT * FROM organizations WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id)
@@ -460,56 +795,60 @@ def reassign_organization(org_id):
     ).fetchall()
 
     if request.method == "POST":
-        target_id = request.form.get("target_id")
+        parent_id = request.form.get("target_id")
         also_delete = bool(request.form.get("also_delete"))
-        if not target_id:
-            flash("Choose an organization to reassign these records to.", "error")
+        if not parent_id:
+            flash("Choose the Parent organization to merge into.", "error")
             return redirect(url_for("organizations.reassign_organization", org_id=org_id))
-        target_id = int(target_id)
-        target = db.execute(
-            "SELECT * FROM organizations WHERE organization_id = ? AND tenant_id = ?", (target_id, g.tenant_id)
+        parent_id = int(parent_id)
+        parent = db.execute(
+            "SELECT * FROM organizations WHERE organization_id = ? AND tenant_id = ?", (parent_id, g.tenant_id)
         ).fetchone()
-        if target is None:
+        if parent is None:
             abort(404)
 
-        moved = 0
-        for ref in REFERENCES:
-            cur = db.execute(
-                f"UPDATE {ref['table']} SET {ref['fk']} = ? WHERE {ref['fk']} = ? AND tenant_id = ?",
-                (target_id, org_id, g.tenant_id),
-            )
-            moved += cur.rowcount
+        summary = _merge_organizations(db, parent_id, org_id)
 
         if also_delete:
-            # Same reasoning as delete_organization above — the merged-away
-            # organization's own addresses/emails/phones/reference
-            # links/ad listings aren't moved to the survivor (nothing else
-            # about it is, either — notes are discarded the same way), just
-            # cleared so the delete succeeds.
-            db.execute("DELETE FROM organization_addresses WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id))
-            db.execute("DELETE FROM organization_emails WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id))
-            db.execute("DELETE FROM organization_phones WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id))
-            db.execute("DELETE FROM organization_reference_links WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id))
-            _delete_org_ad_listings(db, org_id)
+            # _merge_organizations already moved or discarded every one of
+            # Other's owned rows (addresses/emails/phones/reference
+            # links/ad listings) and every contact pointing at it, so
+            # nothing is left to clear here except the organization row
+            # itself.
             db.execute("DELETE FROM organizations WHERE organization_id = ? AND tenant_id = ?", (org_id, g.tenant_id))
         db.commit()
 
+        moved_bits = [
+            f"{summary['contacts_moved']} contact(s)",
+            f"{summary['addresses_moved']} address(es) ({summary['addresses_skipped']} duplicate skipped)"
+                if summary["addresses_moved"] or summary["addresses_skipped"] else None,
+            f"{summary['phones_moved']} phone(s) ({summary['phones_skipped']} duplicate skipped)"
+                if summary["phones_moved"] or summary["phones_skipped"] else None,
+            f"{summary['emails_moved']} email(s) ({summary['emails_skipped']} duplicate skipped)"
+                if summary["emails_moved"] or summary["emails_skipped"] else None,
+            f"{summary['links_moved']} reference link(s) ({summary['links_skipped']} duplicate skipped)"
+                if summary["links_moved"] or summary["links_skipped"] else None,
+            f"{summary['ads_moved']} ad listing(s) ({summary['ads_skipped']} duplicate skipped)"
+                if summary["ads_moved"] or summary["ads_skipped"] else None,
+        ]
+        moved_desc = ", ".join(b for b in moved_bits if b)
+
         log_action(
-            "Update", "organization", org_id,
-            f"Reassigned {moved} record(s) from '{org['organization_name']}' to '{target['organization_name']}'"
-            + (" and deleted the old organization" if also_delete else ""),
+            "Update", "organization", parent_id,
+            f"Merged '{org['organization_name']}' into '{parent['organization_name']}': {moved_desc}."
+            + (f" '{org['organization_name']}' was then deleted." if also_delete else ""),
         )
         flash(
-            f"Moved {moved} record(s) from '{org['organization_name']}' to '{target['organization_name']}'."
+            f"Merged '{org['organization_name']}' into '{parent['organization_name']}': {moved_desc}."
             + (
                 f" '{org['organization_name']}' was then deleted."
                 if also_delete
-                else f" '{org['organization_name']}' is still in the list with nothing pointing at it "
+                else f" '{org['organization_name']}' is still in the list, now empty "
                      f"— delete it separately whenever you like."
             ),
             "success",
         )
-        return redirect(url_for("organizations.list_organizations"))
+        return redirect(url_for("organizations.view_organization", org_id=parent_id))
 
     return render_template(
         "organizations/reassign.html",
@@ -1362,6 +1701,7 @@ def delete_ad_photo(org_id, ad_id, photo_id):
 
 @organizations_bp.route("/<int:org_id>/ads/import", methods=["GET"])
 @login_required
+@agent_access_required("ad_import")
 def import_ad_form(org_id):
     db = get_db()
     org = _get_organization(db, org_id)
@@ -1370,6 +1710,7 @@ def import_ad_form(org_id):
 
 @organizations_bp.route("/<int:org_id>/ads/import/extract", methods=["POST"])
 @login_required
+@agent_access_required("ad_import")
 def import_ad_extract(org_id):
     db = get_db()
     org = _get_organization(db, org_id)
@@ -1383,7 +1724,7 @@ def import_ad_extract(org_id):
     original_filename = file.filename
 
     try:
-        ads = extract_ads_from_image(image_bytes, mime_type)
+        ads, usage = extract_ads_from_image(image_bytes, mime_type)
     except ExtractionError as e:
         flash(str(e), "error")
         return redirect(url_for("organizations.import_ad_form", org_id=org_id))
@@ -1406,6 +1747,8 @@ def import_ad_extract(org_id):
         "Import", "organization_ad_listing", None,
         f"Extracted {len(ads_preview)} ad(s) from a photo for organization #{org_id}",
     )
+    log_agent_usage(g.tenant_id, "ad_import", user_id=g.user_id, detail=f"organization #{org_id}, 1 photo",
+                    model_code=usage["model_code"], tokens_input=usage["tokens_input"], tokens_output=usage["tokens_output"])
     return render_template(
         "organizations/ad_import_review.html",
         org=org, ads=ads_preview, ad_token=ad_token, mime_type=mime_type,
@@ -1520,6 +1863,7 @@ def import_ad_save(org_id):
 
 @organizations_bp.route("/<int:org_id>/ads/import/batch", methods=["GET"])
 @login_required
+@agent_access_required("ad_import")
 def import_ad_batch_form(org_id):
     db = get_db()
     org = _get_organization(db, org_id)
@@ -1528,6 +1872,7 @@ def import_ad_batch_form(org_id):
 
 @organizations_bp.route("/<int:org_id>/ads/import/batch/extract", methods=["POST"])
 @login_required
+@agent_access_required("ad_import")
 def import_ad_batch_extract(org_id):
     db = get_db()
     org = _get_organization(db, org_id)
@@ -1559,10 +1904,12 @@ def import_ad_batch_extract(org_id):
     errors = []
     for filename, image_bytes, mime_type in images:
         try:
-            ads = extract_ads_from_image(image_bytes, mime_type)
+            ads, usage = extract_ads_from_image(image_bytes, mime_type)
         except ExtractionError as e:
             errors.append({"filename": filename, "error": str(e)})
             continue
+        log_agent_usage(g.tenant_id, "ad_import", user_id=g.user_id, detail=f"organization #{org_id}, batch: {filename}",
+                        model_code=usage["model_code"], tokens_input=usage["tokens_input"], tokens_output=usage["tokens_output"])
         try:
             photo_filename = _save_ad_photo_bytes(image_bytes, mime_type)
         except OSError as e:

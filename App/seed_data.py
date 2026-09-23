@@ -1997,6 +1997,212 @@ def seed_global_lookups(db):
     db.commit()
 
 
+# (agent_code, name, description, category) — the agents that already
+# exist in code today. A tenant does NOT get these automatically; each
+# still has to be requested (TenantAdmin) and approved (SystemAdmin) via
+# the Agents Library screen — see blueprints/agents.py, agents.py.
+AGENTS_LIBRARY = [
+    (
+        "business_card_import",
+        "AI Business Card Import",
+        "Photograph a business card (front, optionally back) and Claude reads off the organization and contact details for you to review before saving — see Data Exchange > Import Business Card.",
+        "AI Import",
+    ),
+    (
+        "ad_import",
+        "AI Ad/Listing Import",
+        "Photograph an ad, clipping, or social post for an Organization and Claude extracts the headline, offer, price, and contact details — see an Organization's page > Import Ad(s).",
+        "AI Import",
+    ),
+]
+
+
+def seed_agents_library(db):
+    """Seeds the GLOBAL agents_library catalog (see schema.sql's "MODULE
+    AGENTS" comment) with the agents that already exist in code. Safe to
+    re-run — INSERT OR IGNORE keyed on agent_code, so a fresh install and
+    every later migration run both leave existing rows untouched."""
+    for i, (code, name, description, category) in enumerate(AGENTS_LIBRARY):
+        db.execute(
+            "INSERT OR IGNORE INTO agents_library (agent_code, name, description, category, sort_order) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (code, name, description, category, i),
+        )
+    db.commit()
+
+
+# (provider_code, name) -- see schema.sql's ai_providers.
+AI_PROVIDERS = [
+    ("ANTHROPIC", "Anthropic"),
+]
+
+# (model_code, display_name, requires_tenant_api_key, provider_code) -- the
+# model both existing agents already call (business_card_import.py /
+# ad_import.py's EXTRACTION_MODEL). requires_tenant_api_key=0 because both
+# run on the platform's own shared ANTHROPIC_API_KEY today; a future
+# advanced-tier model seeds a second row here with that flag set.
+AI_MODELS = [
+    ("claude-sonnet-5", "Claude Sonnet 5", 0, "ANTHROPIC"),
+]
+
+# Fixed seed date (not date('now')) so re-running this doesn't insert a new
+# rate row every day -- one placeholder rate, dated to when Phase 1 shipped.
+# $3 / $15 per million input/output tokens is Anthropic's published Sonnet-
+# family rate as of this build; confirm against your actual invoice and
+# adjust from the SystemAdmin catalog screen (blueprints/billing.py) if it
+# differs -- a correction there adds a NEW dated row rather than editing
+# this one, so past actual_cost figures stay computed at the rate that was
+# really in force then.
+AI_MODEL_RATES_SEED_DATE = "2026-09-23"
+# (model_code, cost_per_1k_input_tokens, cost_per_1k_output_tokens)
+AI_MODEL_RATES = [
+    ("claude-sonnet-5", 0.003, 0.015),
+]
+
+
+def seed_ai_catalog(db):
+    """Seeds the GLOBAL ai_providers / ai_models / ai_model_rates tables
+    (see schema.sql's "MODULE AGENTS" comment and
+    claude/GSS_Agents_Billing_Architecture_v1.md), then points both
+    existing agents_library rows at the seeded model as their default.
+    Idempotent: providers/models are INSERT OR IGNORE keyed on their unique
+    code; a rate is only inserted if that model has no rate row yet (so
+    re-running this never duplicates or overwrites a rate someone has
+    since edited from the catalog screen); default_model_id is only set
+    where still NULL, so a value chosen by hand isn't overwritten."""
+    for provider_code, name in AI_PROVIDERS:
+        db.execute(
+            "INSERT OR IGNORE INTO ai_providers (provider_code, name) VALUES (?, ?)",
+            (provider_code, name),
+        )
+    db.commit()
+
+    for model_code, display_name, requires_key, provider_code in AI_MODELS:
+        provider = db.execute(
+            "SELECT provider_id FROM ai_providers WHERE provider_code = ?", (provider_code,)
+        ).fetchone()
+        if provider is None:
+            continue
+        db.execute(
+            "INSERT OR IGNORE INTO ai_models (provider_id, model_code, display_name, requires_tenant_api_key) "
+            "VALUES (?, ?, ?, ?)",
+            (provider["provider_id"], model_code, display_name, requires_key),
+        )
+    db.commit()
+
+    for model_code, cost_in, cost_out in AI_MODEL_RATES:
+        model = db.execute("SELECT model_id FROM ai_models WHERE model_code = ?", (model_code,)).fetchone()
+        if model is None:
+            continue
+        has_rate = db.execute(
+            "SELECT 1 FROM ai_model_rates WHERE model_id = ?", (model["model_id"],)
+        ).fetchone()
+        if has_rate:
+            continue
+        db.execute(
+            "INSERT INTO ai_model_rates (model_id, effective_from, cost_per_1k_input_tokens, cost_per_1k_output_tokens) "
+            "VALUES (?, ?, ?, ?)",
+            (model["model_id"], AI_MODEL_RATES_SEED_DATE, cost_in, cost_out),
+        )
+    db.commit()
+
+    default_model = db.execute("SELECT model_id FROM ai_models WHERE model_code = ?", ("claude-sonnet-5",)).fetchone()
+    if default_model:
+        for code, *_rest in AGENTS_LIBRARY:
+            db.execute(
+                "UPDATE agents_library SET default_model_id = ? WHERE agent_code = ? AND default_model_id IS NULL",
+                (default_model["model_id"], code),
+            )
+    db.commit()
+
+
+# (agent_code, plan_code, plan_name, pricing_model, flat_fee_amount,
+#  included_units_per_cycle, overage_unit_fee, per_transaction_fee) --
+# placeholder numbers for the two existing agents, illustrating the two fee
+# shapes the design calls for (see claude/GSS_Agents_Billing_Architecture_v1.md);
+# edit the real numbers from the SystemAdmin catalog screen once confirmed.
+AGENT_PRICING_PLANS = [
+    ("business_card_import", "standard_monthly", "Standard Monthly", "flat_monthly", 49.00, 500, 0.15, None),
+    ("ad_import", "pay_as_you_go", "Pay As You Go", "per_transaction", None, None, None, 0.25),
+]
+
+
+def seed_agent_pricing_plans(db):
+    """Seeds one agent_pricing_plans row per existing agent (see
+    AGENT_PRICING_PLANS above). Idempotent -- INSERT OR IGNORE keyed on the
+    (agent_id, plan_code) UNIQUE constraint, so a plan's numbers, once
+    edited by hand from the catalog screen, are never overwritten by a
+    later migration run."""
+    for agent_code, plan_code, plan_name, pricing_model, flat_fee, included_units, overage_fee, per_txn_fee in AGENT_PRICING_PLANS:
+        agent = db.execute("SELECT agent_id FROM agents_library WHERE agent_code = ?", (agent_code,)).fetchone()
+        if agent is None:
+            continue
+        db.execute(
+            """INSERT OR IGNORE INTO agent_pricing_plans
+               (agent_id, plan_code, plan_name, pricing_model, flat_fee_amount,
+                included_units_per_cycle, overage_unit_fee, per_transaction_fee)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (agent["agent_id"], plan_code, plan_name, pricing_model, flat_fee, included_units, overage_fee, per_txn_fee),
+        )
+    db.commit()
+
+
+def seed_granite_signal_billing_subscription(db):
+    """Auto-subscribes Granite Signal Systems (tenant_code 'GRANITSIG') --
+    the first real tenant, and the one the user asked to test billing
+    against first -- to both existing agents' seeded pricing plan,
+    Approved outright (this is a one-time test-data convenience for the
+    first tenant specifically, not the general "custom agents are
+    auto-approved" rule -- see blueprints/agents.py's request_access() for
+    that). Idempotent: only fills in what's missing (a tenant_agents row
+    that doesn't exist yet, or exists but has no plan/isn't Approved yet) --
+    never downgrades a status or reassigns a plan someone has since changed
+    by hand."""
+    tenant = db.execute("SELECT tenant_id FROM tenants WHERE tenant_code = 'GRANITSIG'").fetchone()
+    if tenant is None:
+        return
+    tenant_id = tenant["tenant_id"]
+
+    for agent_code, plan_code, *_rest in AGENT_PRICING_PLANS:
+        agent = db.execute("SELECT agent_id FROM agents_library WHERE agent_code = ?", (agent_code,)).fetchone()
+        if agent is None:
+            continue
+        plan = db.execute(
+            "SELECT plan_id FROM agent_pricing_plans WHERE agent_id = ? AND plan_code = ?",
+            (agent["agent_id"], plan_code),
+        ).fetchone()
+        if plan is None:
+            continue
+
+        existing = db.execute(
+            "SELECT * FROM tenant_agents WHERE tenant_id = ? AND agent_id = ?",
+            (tenant_id, agent["agent_id"]),
+        ).fetchone()
+        if existing is None:
+            db.execute(
+                """INSERT INTO tenant_agents
+                   (tenant_id, agent_id, status, decided_at, notes, pricing_plan_id, subscribed_at)
+                   VALUES (?, ?, 'Approved', datetime('now'), ?, ?, datetime('now'))""",
+                (tenant_id, agent["agent_id"], "Auto-subscribed as the first billing test tenant.", plan["plan_id"]),
+            )
+        else:
+            updates, params = [], []
+            if existing["status"] != "Approved":
+                updates.append("status = 'Approved'")
+                updates.append("decided_at = COALESCE(decided_at, datetime('now'))")
+            if existing["pricing_plan_id"] is None:
+                updates.append("pricing_plan_id = ?")
+                params.append(plan["plan_id"])
+                updates.append("subscribed_at = COALESCE(subscribed_at, datetime('now'))")
+            if updates:
+                params.extend([tenant_id, agent["agent_id"]])
+                db.execute(
+                    f"UPDATE tenant_agents SET {', '.join(updates)} WHERE tenant_id = ? AND agent_id = ?",
+                    params,
+                )
+    db.commit()
+
+
 def seed_lookup_tables(db, tenant_id: int):
     """Seeds every TENANT-SCOPED lookup table GSS has, for one tenant —
     plus the global geography tables, which only actually insert once no
@@ -2080,51 +2286,82 @@ def seed_business_card_sample_contact(db, tenant_id: int):
 
 
 def seed_first_tenant(db):
-    """Initial data: the first tenant ("Acme Corp") with its Tenant Admin
-    (username 'Zeb', password 'Zebra' — change this after first login),
-    its own set of lookup tables, and the shared global geography tables.
-    Safe to re-run: does nothing if this tenant already exists.
+    """Initial data: the first tenant ("Granite Signal Systems") with
+    its Tenant Admin (username 'Zeb' -- password is whatever the batch
+    file's `flask set-password` call locks it to right after this runs;
+    the password this function sets here is never the one actually used to
+    log in), its own set of lookup tables, and the shared global geography
+    tables. Safe to re-run: does nothing if this tenant already exists.
+    tenant_code is 'GRANITSIG' -- a meaningful internal short code for the
+    tenant (Granite Signal Systems), replacing the original 'ACME_CORP'
+    placeholder slug from before the real business name was known; see
+    db.py's _migration_tenant_code_rename for the one-time upgrade path
+    that renames an already-seeded install created before this real code
+    was known (same pattern as _migration_tenant_address_and_rename for the
+    name/address, and _migration_tenant_drop_gss_suffix for the "(GSS)"
+    suffix). tenant_code is still just an internal identifier, never shown
+    to end users in the UI.
+
+    Delegates to tenant_provisioning.provision_tenant() -- the same
+    function /setup and Tenant Management use -- rather than its own raw
+    INSERT, so this tenant is created exactly the same way as every other
+    one: it gets a permanent, auto-generated account_number (see db.py's
+    next_account_number()) at creation time instead of only picking one up
+    later from the backfill migration, and it can never drift out of step
+    with what "provisioning a tenant" actually does.
+
+    tenant_name is just "Granite Signal Systems", with no "(GSS)" -- "GSS"
+    is the platform's own name (see templates/base.html's sidebar logo),
+    never part of a tenant's own display name, so the two can't be confused
+    for each other in the UI.
 
     Called by `flask --app app seed-tenant`. This is how GSS gets its
     first working login without anyone needing to go through the /setup
     wizard (which still exists, for provisioning additional tenants
     later).
     """
-    from security import crypto
-    from security.passwords import hash_password
-    from security.wordlist import generate_seed_phrase, hash_phrase
+    from tenant_provisioning import provision_tenant
 
-    existing = db.execute("SELECT tenant_id FROM tenants WHERE tenant_code = ?", ("ACME_CORP",)).fetchone()
+    existing = db.execute("SELECT tenant_id FROM tenants WHERE tenant_code = ?", ("GRANITSIG",)).fetchone()
     if existing:
         return existing["tenant_id"]
 
-    dek = crypto.new_tenant_dek()
-    dek_wrapped = crypto.wrap_tenant_dek(dek)
-    cur = db.execute(
-        "INSERT INTO tenants (tenant_code, tenant_name, dek_wrapped) VALUES (?, ?, ?)",
-        ("ACME_CORP", "Acme Corp", dek_wrapped),
+    # The password passed here is never the one actually used to log in --
+    # the batch file runs `flask set-password` right after `seed-tenant`,
+    # which always overwrites it. must_change_password=False so a fresh
+    # install doesn't get stuck on a change-password interstitial before
+    # set-password has had a chance to run.
+    tenant_id, _seed_phrase = provision_tenant(
+        db, "Granite Signal Systems", "Zeb", "Zeb", "Zebra123",
+        tenant_code="GRANITSIG", must_change_password=False,
     )
-    tenant_id = cur.lastrowid
 
-    # Recovery seed phrase is generated but not surfaced anywhere for this
-    # CLI-seeded admin (there's no UI moment to show it, unlike the /setup
-    # wizard's one-time reveal page). Recorded as a hash only, same as
-    # everywhere else; the plaintext is discarded immediately. Use "forgot
-    # password" if a real recovery phrase is needed later.
-    seed_phrase = generate_seed_phrase()
     db.execute(
-        """INSERT INTO users (tenant_id, username, display_name, password_hash, role, recovery_seed_hash)
-           VALUES (?, 'Zeb', 'Zeb', ?, 'TenantAdmin', ?)""",
-        (tenant_id, hash_password("Zebra"), hash_phrase(seed_phrase)),
+        "UPDATE tenants SET address_street=?, address_city=?, address_state=?, address_postal_code=? WHERE tenant_id=?",
+        ("104 Old Winslow Road", "Wilmot", "NH", "03287", tenant_id),
     )
     db.commit()
 
-    seed_lookup_tables(db, tenant_id)
     seed_business_card_sample_contact(db, tenant_id)
+
+    # On a BRAND NEW install, `flask init-db` then `flask seed-tenant` means
+    # this tenant doesn't exist yet the one time db.py's
+    # _migration_agents_billing runs (that migration runs at the very next
+    # app startup after init-db, before seed-tenant has created anyone) --
+    # so its own call to seed_granite_signal_billing_subscription() is a
+    # no-op there. Calling the whole seed chain again here, right after
+    # provisioning, is what actually subscribes this tenant on a fresh
+    # install; on an UPGRADED existing install (where GRANITSIG already
+    # exists by migration time) this block never runs at all (the early
+    # `if existing: return` above), so there's no double-seeding -- and
+    # every one of these three calls is independently idempotent besides.
+    seed_ai_catalog(db)
+    seed_agent_pricing_plans(db)
+    seed_granite_signal_billing_subscription(db)
 
     db.execute(
         "INSERT INTO audit_log (tenant_id, action, entity_type, entity_id, detail) VALUES (?, 'Setup', 'tenants', ?, ?)",
-        (tenant_id, tenant_id, "Seeded Acme Corp tenant with admin user 'Zeb' via seed-tenant CLI command"),
+        (tenant_id, tenant_id, "Seeded Granite Signal Systems tenant with admin user 'Zeb' via seed-tenant CLI command"),
     )
     db.commit()
     return tenant_id

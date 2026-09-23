@@ -1,0 +1,12 @@
+# Never bake per-deployment state or secrets into the image -- instance/
+# (gss.db, secret_key, tenant_master.key, uploads/, backups/) lives on the
+# Coolify persistent volume instead, and .env's values become Coolify
+# environment variables (see config.py, app.py's load_dotenv()).
+instance/
+.env
+.git
+.gitignore
+venv/
+.venv/
+__pycache__/
+*.pyc

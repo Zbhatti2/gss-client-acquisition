@@ -79,6 +79,53 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% elif batch.target_module == 'ads' %}
+      <thead><tr><th>Status</th><th>Photo</th><th>Organization</th><th>Contact</th><th>Ad</th><th>Price</th><th>Error</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><span class="badge bg-{{ 'success' if r.validation_status == 'Valid' else 'danger' }}-subtle text-dark">{{ r.validation_status }}</span></td>
+          <td>
+            {% if r.parsed.get('_photo_token') %}
+            <a href="{{ url_for('data_exchange.pending_ad_flyer_image', token=r.parsed['_photo_token'], mime=r.parsed.get('_photo_mime', 'image/jpeg')) }}" target="_blank">
+              <img src="{{ url_for('data_exchange.pending_ad_flyer_image', token=r.parsed['_photo_token'], mime=r.parsed.get('_photo_mime', 'image/jpeg')) }}" style="width:64px;height:64px;object-fit:cover;border-radius:4px;" alt="">
+            </a>
+            {% endif %}
+          </td>
+          <td class="small">
+            {{ r.parsed.get('organization_name', '') }}
+            {% if r.parsed.get('_existing_org_id') %}
+            <br><span class="badge bg-success-subtle text-success" title="Ad will be added to this existing organization">Matched: {{ r.parsed.get('_existing_org_name', '') }}</span>
+            {% elif r.parsed.get('organization_name') %}
+            <br><span class="badge bg-warning-subtle text-dark">New organization</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            {{ r.parsed.get('contact_name', '') }}
+            {% if r.parsed.get('contact_name') %}
+            {% if r.parsed.get('_existing_contact_id') %}
+            <br><span class="badge bg-success-subtle text-success">Matched existing contact</span>
+            {% else %}
+            <br><span class="badge bg-warning-subtle text-dark">New contact</span>
+            {% endif %}
+            {% else %}
+            <span class="text-muted">— none named —</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            <strong>{{ r.parsed.get('headline', '') }}</strong><br>
+            <span class="text-muted">{{ r.parsed.get('ad_type', '') }}{% if r.parsed.get('publication') %} · {{ r.parsed.get('publication') }}{% endif %}</span>
+          </td>
+          <td class="small">{{ r.parsed.get('price_label', '') }} {{ r.parsed.get('price', '') }}</td>
+          <td class="text-danger small">{{ r.validation_errors or "" }}</td>
+          <td>
+            {% if r.committed_entity_id %}
+            <a href="{{ url_for('organizations.view_organization', org_id=r.committed_entity_id) }}">View organization →</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
       {% endif %}
     </table>
   </div>

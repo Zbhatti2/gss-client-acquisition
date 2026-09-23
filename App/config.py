@@ -93,3 +93,12 @@ class Config:
     # tenant encryption key is dropped from this session and the user must
     # log in again.
     SESSION_TIMEOUT_MINUTES = 30
+
+    # Whether the session cookie requires HTTPS. MUST be False for local dev
+    # (the start_gss_*.bat setup runs plain http://127.0.0.1, and a Secure
+    # cookie is simply dropped by the browser over plain HTTP -- login would
+    # silently break). Set the SESSION_COOKIE_SECURE=true environment
+    # variable in production (Coolify), once the app is only ever reached
+    # over real HTTPS behind Traefik. Defaults to False so every existing
+    # local setup keeps working unchanged.
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").strip().lower() in ("1", "true", "yes")

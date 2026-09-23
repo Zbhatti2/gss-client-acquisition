@@ -28,17 +28,40 @@ import db as db_module
 from security import csrf
 from utils import basename, format_date, format_phone, linkify, orblank
 
+# "roles": [...] restricts a module (or child) to those roles; omitted means
+# every logged-in user sees it. base.html filters on this — see its {% for
+# m in modules %} loop. SystemAdmin accounts have no tenant_id of their own
+# (schema.sql MODULE T), so everything tenant-scoped (Organizations,
+# Contacts, Documents, Utilities, and System Management's own
+# backups/health, which moved to system_admin_required for a different
+# reason — see blueprints/system_mgmt.py) is hidden from them; Tenant
+# Management is the mirror image, SystemAdmin-only.
 MODULES = [
-    {"key": "dashboard", "label": "Dashboard", "icon": "speedometer2", "endpoint": "dashboard.index"},
-    {"key": "organizations", "label": "Organizations", "icon": "building", "endpoint": "organizations.list_organizations"},
-    {"key": "contacts", "label": "Contacts", "icon": "people", "endpoint": "contacts.list_contacts"},
-    {"key": "documents", "label": "Documents & Knowledge Base", "icon": "folder2-open", "endpoint": "documents.index"},
-    {"key": "utilities", "label": "Utilities", "icon": "gear-wide-connected", "children": [
+    {"key": "dashboard", "label": "Dashboard", "icon": "speedometer2", "endpoint": "dashboard.index",
+     "roles": ["TenantAdmin", "User"]},
+    {"key": "organizations", "label": "Organizations", "icon": "building", "endpoint": "organizations.list_organizations",
+     "roles": ["TenantAdmin", "User"]},
+    {"key": "contacts", "label": "Contacts", "icon": "people", "endpoint": "contacts.list_contacts",
+     "roles": ["TenantAdmin", "User"]},
+    {"key": "documents", "label": "Documents & Knowledge Base", "icon": "folder2-open", "endpoint": "documents.index",
+     "roles": ["TenantAdmin", "User"]},
+    {"key": "utilities", "label": "Utilities", "icon": "gear-wide-connected", "roles": ["TenantAdmin", "User"], "children": [
         {"key": "data_exchange", "label": "Data Exchange", "icon": "arrow-left-right", "endpoint": "data_exchange.index"},
         {"key": "table_maintenance", "label": "Table Maintenance", "icon": "table", "endpoint": "table_maintenance.index"},
         {"key": "geography_admin", "label": "Geography Maintenance", "icon": "globe-americas", "endpoint": "geography_admin.index"},
+        {"key": "agents", "label": "Agents Library", "icon": "robot", "endpoint": "agents.index"},
+        {"key": "billing", "label": "Agent Billing", "icon": "credit-card", "endpoint": "billing.usage"},
     ]},
-    {"key": "system_mgmt", "label": "System Management", "icon": "gear", "endpoint": "system_mgmt.index"},
+    {"key": "users", "label": "Manage Users", "icon": "people-fill", "endpoint": "users.list_users",
+     "roles": ["TenantAdmin"]},
+    {"key": "system_mgmt", "label": "System Management", "icon": "gear", "endpoint": "system_mgmt.index",
+     "roles": ["TenantAdmin", "User"]},
+    {"key": "tenants_admin", "label": "Tenant Management", "icon": "diagram-3", "endpoint": "tenants_admin.list_tenants",
+     "roles": ["SystemAdmin"]},
+    {"key": "agents_admin", "label": "Agent Requests", "icon": "robot", "endpoint": "agents.admin_index",
+     "roles": ["SystemAdmin"]},
+    {"key": "billing_admin", "label": "Agent Billing", "icon": "credit-card", "endpoint": "billing.admin_catalog",
+     "roles": ["SystemAdmin"]},
 ]
 
 
@@ -49,6 +72,9 @@ def create_app():
     app.config["SECRET_KEY"] = Config.get_secret_key()
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    # See config.py: False for local dev (plain http://), set to True via
+    # the SESSION_COOKIE_SECURE env var once served over real HTTPS.
+    app.config["SESSION_COOKIE_SECURE"] = Config.SESSION_COOKIE_SECURE
     # Generous cap covering the largest legitimate upload: a bulk zip of ad
     # photos for Data Exchange > Import Business Card / Organizations >
     # Import Ads in Bulk (up to MAX_BATCH_IMAGES real phone photos per zip,
@@ -77,6 +103,11 @@ def create_app():
     from blueprints.system_mgmt import system_mgmt_bp
     from blueprints.geography import geography_bp
     from blueprints.geography_admin import geography_admin_bp
+    from blueprints.help import help_bp
+    from blueprints.agents import agents_bp
+    from blueprints.billing import billing_bp
+    from blueprints.users import users_bp
+    from blueprints.tenants_admin import tenants_admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -88,6 +119,11 @@ def create_app():
     app.register_blueprint(system_mgmt_bp, url_prefix="/system")
     app.register_blueprint(geography_bp, url_prefix="/geography")
     app.register_blueprint(geography_admin_bp, url_prefix="/geography-admin")
+    app.register_blueprint(help_bp, url_prefix="/help")
+    app.register_blueprint(agents_bp, url_prefix="/agents")
+    app.register_blueprint(billing_bp, url_prefix="/billing")
+    app.register_blueprint(users_bp, url_prefix="/users")
+    app.register_blueprint(tenants_admin_bp, url_prefix="/platform/tenants")
 
     app.jinja_env.globals["modules"] = MODULES
     app.jinja_env.filters["format_phone"] = format_phone

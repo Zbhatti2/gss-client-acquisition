@@ -1,9 +1,13 @@
 {% extends "base.html" %}
+{% from "_macros.html" import help_button %}
 {% block title %}Organizations{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h3 mb-0">Organizations</h1>
-  <a href="{{ url_for('organizations.new_organization') }}" class="btn btn-primary"><i class="bi bi-building-add"></i> New Organization</a>
+  <div class="d-flex gap-2">
+    {{ help_button('organizations/overview') }}
+    <a href="{{ url_for('organizations.new_organization') }}" class="btn btn-primary"><i class="bi bi-building-add"></i> New Organization</a>
+  </div>
 </div>
 
 <form method="get" class="row g-2 mb-3">
@@ -30,9 +34,29 @@
     </select>
   </div>
   <div class="col-auto">
+    <!-- Clearing Sub-Domain when Domain changes keeps the two in sync —
+         without this, submitting a Sub-Domain left over from a previous
+         Domain could pair it with a Domain it doesn't belong to and
+         silently return zero results. -->
+    <select class="form-select" name="domain_id" onchange="this.form.elements['subdomain_id'].value = '';">
+      <option value="">All domains</option>
+      {% for d in org_domains %}
+      <option value="{{ d.organization_domain_id }}" {{ "selected" if domain_id == d.organization_domain_id|string else "" }}>{{ d.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select class="form-select" name="subdomain_id">
+      <option value="">All sub-domains</option>
+      {% for s in org_subdomains %}
+      <option value="{{ s.organization_subdomain_id }}" {{ "selected" if subdomain_id == s.organization_subdomain_id|string else "" }}>{{ s.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
     <button class="btn btn-outline-secondary" type="submit">Search</button>
   </div>
-  {% if q or type_id or city or country_id %}
+  {% if q or type_id or city or country_id or domain_id or subdomain_id %}
   <div class="col-auto">
     <a href="{{ url_for('organizations.list_organizations') }}" class="btn btn-link">Clear</a>
   </div>

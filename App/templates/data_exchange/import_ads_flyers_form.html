@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Import Ads/Flyers{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Import Ads/Flyers (AI)</h1>
+<p class="text-muted mb-4">
+  For ads and flyers collected before their business is necessarily in GSS yet — each photo is read by Claude for
+  both the ad itself <strong>and</strong> the advertiser's own name/address/phone/website. Unlike Organizations &gt;
+  Import Ad(s) (which adds an ad to an organization you're already viewing), this can create a brand-new
+  Organization — and a Contact too, if the ad names a specific person — so everything is staged for review before
+  anything is saved. Nothing reaches your live data until you commit the batch.
+</p>
+
+<form method="post" action="{{ url_for('data_exchange.import_ads_flyers_extract') }}" enctype="multipart/form-data"
+      class="card shadow-sm border-0" style="max-width: 640px;" id="ads-flyers-form">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+      <label class="form-label">Photo(s) of ads/flyers</label>
+      <input class="form-control" type="file" name="images" accept="image/png,image/jpeg,image/gif,image/webp" multiple autofocus>
+      <div class="form-text">Select as many individual photos as you like (up to {{ max_batch_images }} images per batch).</div>
+    </div>
+    <div class="text-center text-muted small my-2">— or —</div>
+    <div class="mb-3">
+      <label class="form-label">A .zip file of ad/flyer photos</label>
+      <input class="form-control" type="file" name="zip_file" accept=".zip">
+      <div class="form-text">Use this instead of the file picker above for a large batch — same {{ max_batch_images }}-image limit either way.</div>
+    </div>
+    <p class="small text-muted mb-0">
+      A single photo can hold more than one distinct ad (e.g. several promos on one flyer, or a page of
+      classifieds) — each one is extracted and staged separately.
+    </p>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('data_exchange.index') }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-primary" type="submit" id="ads-flyers-submit">Extract &amp; Stage for Review</button>
+  </div>
+</form>
+<script>
+  document.getElementById('ads-flyers-form').addEventListener('submit', function () {
+    var btn = document.getElementById('ads-flyers-submit');
+    btn.disabled = true;
+    btn.innerText = 'Reading images… this can take a minute for a full batch';
+  });
+</script>
+<p class="text-muted mt-3"><small>
+  Requires an Anthropic API key configured on this server (<code>ANTHROPIC_API_KEY</code> environment variable).
+  Already know which organization this ad belongs to? Open that organization's page and use its own
+  "Import Ad(s)" button instead — that flow stays exactly as it was.
+</small></p>
+{% endblock %}

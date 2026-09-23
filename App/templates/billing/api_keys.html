@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}API Keys{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">API Keys</h1>
+  <a href="{{ url_for('billing.usage') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-graph-up"></i> Usage</a>
+</div>
+<p class="text-muted">Your organization's own provider API key, for an agent or model tier that requires one instead of running on the platform's shared key. Adding a new key for a provider automatically deactivates any previous active key for that provider.</p>
+
+<div class="card shadow-sm border-0 mb-4">
+  <div class="card-body">
+    <h2 class="h6 mb-3">Add a key</h2>
+    <form method="post" action="{{ url_for('billing.add_api_key') }}" class="row g-2 align-items-end" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-3">
+        <label class="form-label small" for="provider_code">Provider</label>
+        <select class="form-select form-select-sm" id="provider_code" name="provider_code" required>
+          {% for p in providers %}
+          <option value="{{ p.provider_code }}">{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label small" for="api_key">API key</label>
+        <input class="form-control form-control-sm" id="api_key" name="api_key" type="password" required autocomplete="off" placeholder="sk-ant-...">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small" for="label">Label (optional)</label>
+        <input class="form-control form-control-sm" id="label" name="label" type="text" autocomplete="off" placeholder="Production key">
+      </div>
+      <div class="col-md-1">
+        <button class="btn btn-primary btn-sm w-100" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped mb-0 align-middle">
+      <thead>
+        <tr><th>Provider</th><th>Key</th><th>Label</th><th>Added</th><th>Last used</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in credentials %}
+        <tr>
+          <td>{{ c.provider_name }}</td>
+          <td class="small text-muted font-monospace">•••• (stored encrypted — never shown again)</td>
+          <td>{{ c.label or "—" }}</td>
+          <td class="small text-muted text-nowrap">{{ c.added_at }}</td>
+          <td class="small text-muted text-nowrap">{{ c.last_used_at or "Never" }}</td>
+          <td>
+            {% if c.is_active %}
+            <span class="badge bg-success-subtle text-success">Active</span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary">Inactive</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if c.is_active %}
+            <form method="post" action="{{ url_for('billing.deactivate_api_key', credential_id=c.credential_id) }}" class="d-inline"
+                  onsubmit="return confirm('Deactivate this key? Agents needing it will fall back to the platform key, if any.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-warning btn-sm" type="submit">Deactivate</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-5">No API keys on file yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

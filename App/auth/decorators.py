@@ -1,8 +1,13 @@
 import functools
 
-from flask import abort, flash, g, redirect, session, url_for
+from flask import abort, flash, g, redirect, request, session, url_for
 
 from security import session_keys
+
+# Endpoints reachable even while must_change_password is set — the change-
+# password form itself (obviously), plus logout (a stuck user must always
+# be able to leave rather than be trapped in a redirect loop).
+_MUST_CHANGE_PASSWORD_ALLOWED_ENDPOINTS = {"system_mgmt.change_password", "auth_bp.logout"}
 
 
 def get_current_dek():
@@ -35,6 +40,16 @@ def login_required(view):
         g.display_name = session.get("display_name")
         g.role = session.get("role")
         g.tenant_name = session.get("tenant_name")
+
+        # A Tenant-Admin-issued temporary password (new user, or a reset —
+        # see blueprints/users.py) forces a real password of the user's own
+        # choosing before anything else is reachable. system_mgmt.
+        # change_password clears the session flag once they've done that;
+        # logout is always reachable so this can never become a dead end.
+        if session.get("must_change_password") and request.endpoint not in _MUST_CHANGE_PASSWORD_ALLOWED_ENDPOINTS:
+            flash("Your organization's admin set a temporary password for you — please choose a new one to continue.", "error")
+            return redirect(url_for("system_mgmt.change_password"))
+
         return view(*args, **kwargs)
     return wrapped
 
@@ -56,15 +71,31 @@ def system_admin_required(view):
     """Like login_required, but also requires the SystemAdmin role (tenant
     provisioning, whole-database backups). SystemAdmin accounts have no
     tenant_id/DEK of their own, so pages behind this decorator must not rely
-    on g.dek."""
+    on g.dek or g.tenant_id (left unset — templates already guard g.tenant_name
+    with an {% if %}, same as they do for a SystemAdmin under login_required)."""
     @functools.wraps(view)
     def wrapped(*args, **kwargs):
         token = session.get("auth_token")
-        if not token or session.get("role") != "SystemAdmin":
+        if not token:
+            # Not logged in at all (or a stale cookie from before login) --
+            # same case login_required clears for the same reason.
             session.clear()
             return redirect(url_for("auth_bp.login"))
+        if session.get("role") != "SystemAdmin":
+            # Logged in, just not as a SystemAdmin (e.g. a TenantAdmin who
+            # followed an old link or a stale bookmark) -- a clean 403,
+            # same as tenant_admin_required, not a forced logout: being
+            # logged in as the wrong role isn't a broken session.
+            flash("That page is restricted to System Admins.", "error")
+            abort(403)
         g.user_id = session.get("user_id")
         g.username = session.get("username")
+        g.display_name = session.get("display_name")
         g.role = session.get("role")
+
+        if session.get("must_change_password") and request.endpoint not in _MUST_CHANGE_PASSWORD_ALLOWED_ENDPOINTS:
+            flash("Please choose a new password to continue.", "error")
+            return redirect(url_for("system_mgmt.change_password"))
+
         return view(*args, **kwargs)
     return wrapped

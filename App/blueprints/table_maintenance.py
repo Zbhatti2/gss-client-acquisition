@@ -20,6 +20,18 @@ when a lookup table changes underneath it:
    a different entry the user picks, then optionally deletes the old one —
    this is also how two near-duplicate entries (e.g. "Manager"/"Director")
    get merged, independent of any delete attempt.
+
+A third thing worth calling out: list ordering. Every table here lists
+alphabetically by Label by default — the same order every dropdown/picker
+elsewhere in the app already uses these lookups in (see contacts.py,
+organizations.py, documents.py's _lookups()), so a freshly added entry
+takes its alphabetical place immediately instead of landing wherever
+`sort_order` happens to default it to (0, same as every other never-
+reordered row). `sort_order` is still stored and editable per row — a
+table opts back into listing by it with `"default_sort": "sort_order"` in
+its TABLES entry, for the rare table whose order is meaningful and not
+alphabetical (see "organization_size_categories" below, ordered Small ->
+Large by employee count).
 """
 import sqlite3
 
@@ -76,10 +88,6 @@ TABLES = {
         "references": [
             {"table": "contacts", "fk": "profession_id", "label": "contact(s)"},
         ],
-        # Long, open-ended list with no natural grouping order of its own —
-        # alphabetical by Label is the useful default here rather than the
-        # drag-order "sort_order" every other lookup table lists by.
-        "default_sort": "label",
     },
     "contact_contexts": {
         "label": "Contexts",
@@ -180,6 +188,15 @@ TABLES = {
             {"column": "min_employees", "label": "Min Employees"},
             {"column": "max_employees", "label": "Max Employees (blank = no upper limit)"},
         ],
+        # Unlike every other table here, this one's order isn't incidental —
+        # it's a Small -> Large progression by employee count (see
+        # seed_data.py's ORGANIZATION_SIZE_CATEGORIES), and that's the order
+        # the New/Edit Organization form's auto-suggest and every other
+        # picker of this lookup uses (organizations.py classification_tree).
+        # Alphabetical would scramble that ("Large" before "Small"), so this
+        # table keeps listing by sort_order instead of the alphabetical
+        # default every other table here uses.
+        "default_sort": "sort_order",
     },
     "organization_domains": {
         "label": "Organization Domains",
@@ -292,7 +309,8 @@ def _parent_options(db, cfg):
     if not p:
         return None
     return db.execute(
-        f"SELECT * FROM {p['table']} WHERE is_active = 1 AND tenant_id = ? ORDER BY sort_order, {p['label_field']}",
+        f"SELECT * FROM {p['table']} WHERE is_active = 1 AND tenant_id = ? "
+        f"ORDER BY {p['label_field']} COLLATE NOCASE",
         (g.tenant_id,),
     ).fetchall()
 
@@ -354,24 +372,26 @@ def index():
 def manage(table_key):
     cfg = _table_config(table_key)
     db = get_db()
-    # Every lookup table lists by its manual drag-order (sort_order, with
-    # label as a tiebreaker) by default. A table can opt into listing
-    # alphabetically by Label instead by setting "default_sort": "label" in
-    # its TABLES entry (see "professions" above) -- sort_order is still
-    # stored and editable either way, it's just not what this screen orders
-    # by for that table.
-    order_by_label = cfg.get("default_sort") == "label"
+    # Every lookup table lists alphabetically by Label by default, so a
+    # freshly added entry takes its place in the list immediately instead
+    # of sitting wherever sort_order's default of 0 puts it. A table opts
+    # back into listing by its manual sort_order instead by setting
+    # "default_sort": "sort_order" in its TABLES entry (see
+    # "organization_size_categories" above) -- sort_order is still stored
+    # and editable either way, it's just not what this screen orders by
+    # unless a table opts into it.
+    order_by_label = cfg.get("default_sort") != "sort_order"
     if cfg.get("parent"):
         p = cfg["parent"]
-        entry_order = "t.label COLLATE NOCASE" if order_by_label else "t.sort_order, t.label"
+        entry_order = "t.label COLLATE NOCASE" if order_by_label else "t.sort_order, t.label COLLATE NOCASE"
         sql = (
             f"SELECT t.*, p.{p['label_field']} AS parent_label FROM {cfg['table']} t "
             f"LEFT JOIN {p['table']} p ON p.{p['pk']} = t.{p['fk']} "
             f"WHERE t.tenant_id = ? "
-            f"ORDER BY p.{p['label_field']}, {entry_order}"
+            f"ORDER BY p.{p['label_field']} COLLATE NOCASE, {entry_order}"
         )
     else:
-        order_by = "t.label COLLATE NOCASE" if order_by_label else "t.sort_order, t.label"
+        order_by = "t.label COLLATE NOCASE" if order_by_label else "t.sort_order, t.label COLLATE NOCASE"
         sql = f"SELECT t.* FROM {cfg['table']} t WHERE t.tenant_id = ? ORDER BY {order_by}"
     rows = db.execute(sql, (g.tenant_id,)).fetchall()
     entries = []

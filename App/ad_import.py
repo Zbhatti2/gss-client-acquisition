@@ -153,8 +153,11 @@ def _normalize_image(image_bytes, mime_type):
 
 
 def extract_ads_from_image(image_bytes, mime_type):
-    """Returns a list of ad dicts (one per distinct ad found in the image).
-    Always a list, even if the image contains just one ad."""
+    """Returns (ads, usage): ads is a list of ad dicts (one per distinct ad
+    found in the image, always a list even for one ad); usage is
+    {"model_code": EXTRACTION_MODEL, "tokens_input": int, "tokens_output": int}
+    for the caller to pass to agents.log_agent_usage() (see
+    agent_billing.py for the cost computation)."""
     image_bytes, mime_type = _normalize_image(image_bytes, mime_type)
 
     client = get_client()
@@ -180,6 +183,12 @@ def extract_ads_from_image(image_bytes, mime_type):
     except Exception as e:
         raise ExtractionError(f"Claude API request failed: {e}") from e
 
+    usage = {
+        "model_code": EXTRACTION_MODEL,
+        "tokens_input": getattr(message.usage, "input_tokens", None),
+        "tokens_output": getattr(message.usage, "output_tokens", None),
+    }
+
     text = "".join(
         block.text for block in message.content if getattr(block, "type", None) == "text"
     )
@@ -204,7 +213,131 @@ def extract_ads_from_image(image_bytes, mime_type):
     if not ads:
         raise ExtractionError("Claude didn't find any ads in that image.")
 
-    return ads
+    return ads, usage
+
+
+AD_IMPORT_SCHEMA = """{
+  "organization_name": string or null,
+  "organization_phone": string or null,
+  "organization_website": string or null,
+  "organization_email": string or null,
+  "address_street": string or null,
+  "address_unit": string or null,
+  "address_city": string or null,
+  "address_state": string or null,
+  "address_postal_code": string or null,
+  "address_country": string or null,
+  "headline": string or null,
+  "ad_type": "Print" or "Online" or "Social Media" or "Classified" or "Direct Mail" or "Broadcast" or "Other",
+  "publication": string or null,
+  "date_published": string or null,
+  "description": string or null,
+  "offer_details": string or null,
+  "price": number or null,
+  "price_label": string or null,
+  "contact_name": string or null,
+  "contact_phone": string or null,
+  "contact_email": string or null,
+  "source_notes": string,
+  "uncertain_fields": [string]
+}"""
+
+AD_IMPORT_EXTRACTION_PROMPT = f"""You are extracting information from a photo of an advertisement or marketing material (a magazine or newspaper ad, a "Help Wanted" clipping, a classified ad, a flyer, a social-media post screenshot, or a screenshot of an online ad/web page) so it can be imported into a CRM -- unlike a routine ad scan, the business the ad is FOR is NOT already known, so you must also identify the advertiser.
+
+IMPORTANT: a single image can contain more than one distinct ad (e.g. a page of classifieds, or several promos on one flyer). Identify each DISTINCT ad separately -- do not merge them into one. If several ads on the same image are clearly for the SAME advertiser (e.g. three product promos on one company's flyer), repeat that same advertiser's organization_name/phone/website/email/address on each of those ad entries. If the image is a classifieds-style page mixing several different businesses, extract each one's own advertiser info separately.
+
+Read all text in the image carefully, including small print. Return ONLY a single raw JSON object (no markdown code fences, no commentary before or after) with exactly one key, "ads", whose value is a JSON array. If the image shows only one ad, return an array with exactly one element. Each array element must have exactly these keys:
+
+{AD_IMPORT_SCHEMA}
+
+Rules:
+- "organization_name" is the name of the BUSINESS the ad is advertising for (from a logo, letterhead, or business name printed on the ad) -- never the publication/platform the ad ran in, and never invented. Read it as printed (don't expand abbreviations or "correct" spelling). Leave it null only if genuinely no business name is legible anywhere on the ad.
+- "organization_phone"/"organization_website"/"organization_email" and the "address_*" fields describe the advertiser's own contact info as printed on the ad (a phone to call, a site to visit, a physical address) -- not the publication's.
+- "contact_name"/"contact_phone"/"contact_email" are ONLY filled in if the ad names a SPECIFIC PERSON to contact (e.g. "Ask for Dave", a named sales rep or agent) as distinct from the business's own general phone/email above -- leave all three null if the ad only gives generic business contact info with no named person.
+- "headline" is the ad's main title/headline text -- the single most identifying line of the ad (e.g. a product name, a job title being advertised, a promotional tagline). Never leave this null if there is ANY readable text in the ad; fall back to a short phrase summarizing what the ad is for if there's no single obvious headline.
+- "ad_type": infer from visual context -- a screenshot with browser/app UI chrome or a URL visible is "Online"; a screenshot showing a social platform's UI (like/comment/share icons, a handle/username, a feed layout) is "Social Media"; a small boxed listing among many similar ones in tiny print is "Classified"; a full-page or half-page magazine/newspaper ad is "Print"; an addressed mailer/postcard is "Direct Mail"; a still frame from TV/radio-style media is "Broadcast"; otherwise "Other".
+- "date_published" must be ISO format YYYY-MM-DD, and only filled in if an actual date is printed/shown on the image -- never guess a date.
+- "price" is a plain number with no "$" or commas, and only filled in if a specific price, rate, or offer amount is printed on the ad (e.g. "$49.99", "20% OFF" has no price, "Starting at $199/mo" -> price 199). "price_label" captures what that number means in the ad's own words. Up to X% off" style offers with no single dollar figure go in "offer_details" instead, with price left null.
+- "offer_details" is the promotional offer or call-to-action text (e.g. "Buy One Get One Free", "Call now for a free quote", "20% off this week only") -- free text, can be longer than one line.
+- "publication" is the name of the magazine, newspaper, website, or platform the ad ran in/on, only if it's evident from the image -- otherwise null.
+- Do not invent a business name, headline, price, date, address, or contact detail that isn't shown in the image.
+- "source_notes" should briefly note anything ambiguous and list which important fields simply weren't printed/legible, for that specific ad.
+- "uncertain_fields" lists the JSON key names of anything you had to infer, guess, or read with low confidence for that specific ad -- not fields that are just genuinely null.
+
+Return raw JSON only, nothing else. Example shape: {{"ads": [{{...}}, {{...}}]}}"""
+
+
+def extract_ads_for_import(image_bytes, mime_type):
+    """Like extract_ads_from_image, but for Data Exchange's mass "Import
+    Ads/Flyers" feature (blueprints/data_exchange.py) rather than the
+    per-Organization ad import on an org's own page (blueprints/
+    organizations.py, which this function is NOT used by -- that feature's
+    behavior is unchanged). The difference: mass-collected ads/flyers are
+    photographed before anyone has entered the advertiser as an
+    Organization yet, so this extraction ALSO identifies the advertiser
+    (organization_name/phone/website/email/address) per ad, using a
+    separate schema/prompt (AD_IMPORT_SCHEMA/AD_IMPORT_EXTRACTION_PROMPT)
+    from the org-already-known extraction above. Returns (ads, usage): ads
+    is a list of ad dicts (one per distinct ad found in the image, always
+    a list even for a single ad); usage is
+    {"model_code": EXTRACTION_MODEL, "tokens_input": int, "tokens_output": int}
+    for the caller to pass to agents.log_agent_usage()."""
+    image_bytes, mime_type = _normalize_image(image_bytes, mime_type)
+
+    client = get_client()
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    try:
+        message = client.messages.create(
+            model=EXTRACTION_MODEL,
+            max_tokens=4000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": mime_type, "data": b64},
+                        },
+                        {"type": "text", "text": AD_IMPORT_EXTRACTION_PROMPT},
+                    ],
+                }
+            ],
+        )
+    except Exception as e:
+        raise ExtractionError(f"Claude API request failed: {e}") from e
+
+    usage = {
+        "model_code": EXTRACTION_MODEL,
+        "tokens_input": getattr(message.usage, "input_tokens", None),
+        "tokens_output": getattr(message.usage, "output_tokens", None),
+    }
+
+    text = "".join(
+        block.text for block in message.content if getattr(block, "type", None) == "text"
+    )
+    text = _strip_code_fences(text)
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ExtractionError(
+            f"Couldn't parse Claude's response as JSON. Raw response:\n\n{text}"
+        ) from e
+
+    if isinstance(parsed, list):
+        ads = parsed  # tolerate a bare array too
+    elif isinstance(parsed, dict) and isinstance(parsed.get("ads"), list):
+        ads = parsed["ads"]
+    else:
+        raise ExtractionError(
+            f"Expected a JSON object with an 'ads' array, got: {text[:300]}"
+        )
+
+    if not ads:
+        raise ExtractionError("Claude didn't find any ads in that image.")
+
+    return ads, usage
 
 
 def iter_images_from_zip(zip_bytes):

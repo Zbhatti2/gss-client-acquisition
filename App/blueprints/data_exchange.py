@@ -26,11 +26,28 @@ import os
 import re
 import time
 import uuid
+import zipfile
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, send_from_directory, url_for
 
+from ad_import import ExtractionError as AdExtractionError
+from ad_import import extract_ads_for_import, iter_images_from_zip
+from agents import agent_access_required, log_agent_usage
 from auth.decorators import login_required
 from blueprints.contacts import _delete_image_upload
+from blueprints.organizations import (
+    MAX_BATCH_AD_IMAGES,
+    _add_ad_note,
+    _ad_dict_from_extracted,
+    _attach_ad_photo_file,
+    _cleanup_stale_pending_ads,
+    _create_ad_listing,
+    _find_ad_listing_by_headline,
+    _pending_ad_path,
+    _promote_pending_ad_image,
+    _save_pending_ad_image,
+    _update_ad_listing_partial,
+)
 from business_card_import import (
     CONTACT_PHONE_TYPES,
     ExtractionError,
@@ -1046,12 +1063,14 @@ def _apply_contact_from_card(db, contact_data, organization_id, front_filename, 
 
 @data_exchange_bp.route("/import/business-card", methods=["GET"])
 @login_required
+@agent_access_required("business_card_import")
 def import_business_card_form():
     return render_template("data_exchange/import_business_card_form.html")
 
 
 @data_exchange_bp.route("/import/business-card/extract", methods=["POST"])
 @login_required
+@agent_access_required("business_card_import")
 def import_business_card_extract():
     front = request.files.get("front_image")
     back = request.files.get("back_image")
@@ -1066,7 +1085,7 @@ def import_business_card_extract():
     back_mime = (back.mimetype or "image/jpeg") if has_back else None
 
     try:
-        data = extract_business_card(front_bytes, front_mime, back_bytes, back_mime)
+        data, usage = extract_business_card(front_bytes, front_mime, back_bytes, back_mime)
     except ExtractionError as e:
         flash(str(e), "error")
         return render_template("data_exchange/import_business_card_form.html")
@@ -1109,6 +1128,9 @@ def import_business_card_extract():
         "Import", "business_card", None,
         f"Extracted business card ({data.get('organization_name') or 'no company read'})",
     )
+    log_agent_usage(g.tenant_id, "business_card_import", user_id=g.user_id,
+                    detail=data.get("organization_name") or "no company read",
+                    model_code=usage["model_code"], tokens_input=usage["tokens_input"], tokens_output=usage["tokens_output"])
     return render_template(
         "data_exchange/import_business_card_review.html",
         data=data, existing_org=existing_org, contacts=contacts_preview, shared_address=shared_address,
@@ -1210,6 +1232,221 @@ def import_business_card_save():
     new_count = sum(1 for _, created in saved if created)
     flash(f"Saved {len(saved)} contact(s) from business card ({new_count} new, {len(saved) - new_count} matched to an existing contact).", "success")
     return redirect(url_for("contacts.view_contact", contact_id=saved[0][0]))
+
+
+# --------------------------------------------------------- import ads/flyers
+#
+# Mass import for photos of ads/flyers collected before their advertiser is
+# necessarily in GSS at all yet — unlike organizations.py's per-Organization
+# Ad import (which assumes the org already exists, since the upload happens
+# from that org's own page), a photo here might be the very FIRST record of
+# a business the tenant has never entered. So each extracted ad also
+# identifies its advertiser (ad_import.extract_ads_for_import, a separate
+# extraction from the org-already-known extract_ads_from_image the
+# per-Organization feature keeps using unchanged) and, unlike that feature,
+# goes through a staged review (import_batches/import_staging_rows, the same
+# batch machinery the CSV importers use) before anything is written — a scan
+# that misreads a business name would otherwise silently create a bad
+# Organization record, which is a bigger mistake to make silently than a
+# misread phone number on an already-known org's ad. The Ad Listing itself
+# is still built with organizations.py's own unchanged helpers
+# (_ad_dict_from_extracted/_create_ad_listing/etc.) — see _commit_ads_rows
+# below — so "the existing ads/flyers structure in the organization form"
+# really is the same structure, just fed from a different starting point.
+
+
+def _apply_contact_from_ad_data(db, data, organization_id):
+    """Create or find a Contact from an ad/flyer's named contact_name/
+    contact_phone/contact_email (see ad_import.extract_ads_for_import) — a
+    lighter-weight sibling of _apply_contact_from_card above, since an ad
+    names at most one person with at most one phone/email each, not a
+    business card's full shape (job title, multiple phones, a card image).
+    Match/create semantics otherwise mirror _apply_contact_from_card:
+    reused via _find_contact_for_card, only empty fields filled in on a
+    match, phone/email added only if not already on file. Returns
+    contact_id, or None if the ad named no specific person."""
+    full_name = (data.get("contact_name") or "").strip()
+    if not full_name:
+        return None
+    email = (data.get("contact_email") or "").strip()
+    existing = _find_contact_for_card(db, [email] if email else [], full_name, organization_id)
+
+    if existing:
+        contact_id = existing["contact_id"]
+        if organization_id and not existing["current_organization_id"]:
+            db.execute(
+                "UPDATE contacts SET current_organization_id = ?, updated_at = datetime('now') WHERE contact_id = ? AND tenant_id = ?",
+                (organization_id, contact_id, g.tenant_id),
+            )
+    else:
+        db.execute(
+            "INSERT INTO contacts (tenant_id, full_name, current_organization_id) VALUES (?, ?, ?)",
+            (g.tenant_id, full_name, organization_id),
+        )
+        db.commit()
+        contact_id = db.execute("SELECT last_insert_rowid() id").fetchone()["id"]
+
+    if email:
+        already_have = db.execute(
+            "SELECT 1 FROM contact_emails WHERE contact_id = ? AND lower(email_address) = lower(?)", (contact_id, email)
+        ).fetchone()
+        if not already_have:
+            has_any = db.execute("SELECT 1 FROM contact_emails WHERE contact_id = ?", (contact_id,)).fetchone()
+            db.execute(
+                "INSERT INTO contact_emails (tenant_id, contact_id, email_address, is_primary) VALUES (?, ?, ?, ?)",
+                (g.tenant_id, contact_id, email, 0 if has_any else 1),
+            )
+
+    phone = (data.get("contact_phone") or "").strip()
+    if phone:
+        digits = _normalize_phone_digits(phone)
+        already_have = any(
+            digits and _normalize_phone_digits(row["number"]) == digits
+            for row in db.execute("SELECT number FROM contact_phones WHERE contact_id = ?", (contact_id,))
+        )
+        if not already_have:
+            has_any = db.execute("SELECT 1 FROM contact_phones WHERE contact_id = ?", (contact_id,)).fetchone()
+            db.execute(
+                "INSERT INTO contact_phones (tenant_id, contact_id, phone_type, number, is_primary) VALUES (?, ?, ?, ?, ?)",
+                (g.tenant_id, contact_id, "Business", phone, 0 if has_any else 1),
+            )
+
+    db.commit()
+    return contact_id
+
+
+@data_exchange_bp.route("/import/ads-flyers", methods=["GET"])
+@login_required
+@agent_access_required("ad_import")
+def import_ads_flyers_form():
+    return render_template("data_exchange/import_ads_flyers_form.html", max_batch_images=MAX_BATCH_AD_IMAGES)
+
+
+@data_exchange_bp.route("/import/ads-flyers/extract", methods=["POST"])
+@login_required
+@agent_access_required("ad_import")
+def import_ads_flyers_extract():
+    db = get_db()
+    zip_file = request.files.get("zip_file")
+    image_files = [f for f in request.files.getlist("images") if f and f.filename]
+
+    images = []  # (filename, image_bytes, mime_type)
+    if zip_file and zip_file.filename:
+        try:
+            images.extend(iter_images_from_zip(zip_file.read()))
+        except zipfile.BadZipFile:
+            flash("That file isn't a valid zip archive.", "error")
+            return redirect(url_for("data_exchange.import_ads_flyers_form"))
+    for f in image_files:
+        images.append((f.filename, f.read(), f.mimetype or "image/jpeg"))
+
+    if not images:
+        flash("Choose a zip file of ad/flyer photos, or select one or more image files.", "error")
+        return redirect(url_for("data_exchange.import_ads_flyers_form"))
+
+    if len(images) > MAX_BATCH_AD_IMAGES:
+        flash(
+            f"That's {len(images)} images — the limit per batch is {MAX_BATCH_AD_IMAGES}. Split it into smaller batches.",
+            "error",
+        )
+        return redirect(url_for("data_exchange.import_ads_flyers_form"))
+
+    _cleanup_stale_pending_ads()
+
+    batch_name = zip_file.filename if (zip_file and zip_file.filename) else f"{len(images)} image file(s)"
+    db.execute(
+        "INSERT INTO import_batches (tenant_id, source_type, target_module, file_name, status, row_count) "
+        "VALUES (?, 'JSON', 'ads', ?, 'Staged', 0)",
+        (g.tenant_id, batch_name),
+    )
+    batch_id = db.execute("SELECT last_insert_rowid() id").fetchone()["id"]
+
+    row_count = 0
+    error_count = 0
+    for filename, image_bytes, mime_type in images:
+        try:
+            ads, usage = extract_ads_for_import(image_bytes, mime_type)
+        except AdExtractionError as e:
+            error_count += 1
+            db.execute(
+                "INSERT INTO import_staging_rows (tenant_id, batch_id, raw_data, validation_status, validation_errors) "
+                "VALUES (?, ?, ?, 'Invalid', ?)",
+                (g.tenant_id, batch_id, json.dumps({"_source_filename": filename}), f"Couldn't read this image: {e}"),
+            )
+            continue
+
+        log_agent_usage(g.tenant_id, "ad_import", user_id=g.user_id, detail=filename,
+                        model_code=usage["model_code"], tokens_input=usage["tokens_input"], tokens_output=usage["tokens_output"])
+
+        # One photo can hold more than one distinct ad (see
+        # ad_import.extract_ads_for_import) — saved once here, referenced
+        # by every ad row it produced via _photo_token, promoted to
+        # permanent storage at most once per token at commit time.
+        ad_token = uuid.uuid4().hex
+        _save_pending_ad_image(ad_token, image_bytes, mime_type)
+
+        for item in ads:
+            org_name = (item.get("organization_name") or "").strip()
+            existing_org = _find_organization_by_name(db, org_name) if org_name else None
+            contact_name = (item.get("contact_name") or "").strip()
+            existing_contact = None
+            if contact_name:
+                email = (item.get("contact_email") or "").strip()
+                existing_contact = _find_contact_for_card(
+                    db, [email] if email else [], contact_name,
+                    existing_org["organization_id"] if existing_org else None,
+                )
+
+            row_data = dict(item)
+            row_data["_photo_token"] = ad_token
+            row_data["_photo_mime"] = mime_type
+            row_data["_source_filename"] = filename
+            row_data["_existing_org_id"] = existing_org["organization_id"] if existing_org else None
+            row_data["_existing_org_name"] = existing_org["organization_name"] if existing_org else None
+            row_data["_existing_contact_id"] = existing_contact["contact_id"] if existing_contact else None
+            row_data["_existing_contact_name"] = existing_contact["full_name"] if existing_contact else None
+
+            if org_name:
+                status, errors = "Valid", None
+            else:
+                status, errors = (
+                    "Invalid",
+                    "No business/organization name could be read from this ad — it can't be imported without one.",
+                )
+
+            db.execute(
+                "INSERT INTO import_staging_rows (tenant_id, batch_id, raw_data, validation_status, validation_errors) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (g.tenant_id, batch_id, json.dumps(row_data), status, errors),
+            )
+            row_count += 1
+            if status == "Invalid":
+                error_count += 1
+
+    db.execute(
+        "UPDATE import_batches SET row_count = ?, error_count = ?, status = 'Validated' WHERE batch_id = ? AND tenant_id = ?",
+        (row_count, error_count, batch_id, g.tenant_id),
+    )
+    db.commit()
+    log_action("Import", "ads_flyers_batch", batch_id, f"Extracted {row_count} ad(s) from {len(images)} image(s)")
+    flash(f"Extracted {row_count} ad(s) from {len(images)} image(s) — review before committing.", "success")
+    return redirect(url_for("data_exchange.review_batch", batch_id=batch_id))
+
+
+@data_exchange_bp.route("/import/ads-flyers/pending/<token>")
+@login_required
+def pending_ad_flyer_image(token):
+    """Serves a not-yet-committed ad/flyer photo for the batch review
+    page's thumbnail — straight from the same pending-ads holding
+    directory organizations.py's single-ad import uses (_pending_ad_path
+    validates the token before it's allowed anywhere near a filesystem
+    path)."""
+    mime_type = request.args.get("mime") or "image/jpeg"
+    path = _pending_ad_path(token, mime_type)
+    if not path or not os.path.exists(path):
+        abort(404)
+    directory, filename = os.path.split(path)
+    return send_from_directory(directory, filename)
 
 
 # ------------------------------------------------------------------- review
@@ -1430,9 +1667,91 @@ def _commit_organizations_rows(db, rows):
     return committed
 
 
+def _commit_ads_rows(db, rows):
+    """Commit staged ad/flyer rows from Import Ads/Flyers
+    (import_ads_flyers_extract above). Unlike the Organizations/Contacts
+    CSV importers, EACH row may need its own new Organization — an ad's
+    advertiser very often isn't in the system yet — and, if the ad names a
+    specific person, a new Contact too. The Ad Listing itself is created
+    with organizations.py's own unchanged helpers (_ad_dict_from_extracted/
+    _find_ad_listing_by_headline/_create_ad_listing/_update_ad_listing_partial/
+    _add_ad_note/_attach_ad_photo_file) — same dedup-by-headline and
+    price-history behavior as every other way of importing an ad.
+
+    Two rows sharing the same not-yet-existing advertiser name correctly
+    resolve to the SAME new Organization: _apply_organization_from_card
+    looks the name up fresh for every row, and an earlier row's INSERT in
+    this same loop is already visible to that lookup on this connection.
+
+    Photos: one photographed image can hold more than one distinct ad (see
+    ad_import.extract_ads_for_import), so several rows can share one
+    _photo_token — each token is promoted from pending to permanent
+    storage at most once, and every row sharing it reuses that filename.
+
+    committed_entity_id is set to the Organization, not the Ad Listing —
+    "View organization" is the most useful link back from the review page,
+    since that's exactly where the new ad now shows up (the existing Ads
+    card on the Organization page, unchanged)."""
+    committed = 0
+    promoted_photos = {}  # photo_token -> permanent filename, or None
+    for r in rows:
+        data = json.loads(r["raw_data"])
+
+        existing_org = None
+        existing_org_id = data.get("_existing_org_id")
+        if existing_org_id:
+            existing_org = db.execute(
+                "SELECT * FROM organizations WHERE organization_id = ? AND tenant_id = ?", (existing_org_id, g.tenant_id)
+            ).fetchone()
+        if not existing_org:
+            existing_org = _find_organization_by_name(db, data.get("organization_name"))
+        organization_id, _org_created = _apply_organization_from_card(db, data, existing_org)
+        if not organization_id:
+            continue  # no name and no match — extract-time validation should already have caught this
+
+        _apply_contact_from_ad_data(db, data, organization_id)
+
+        ad_data = _ad_dict_from_extracted(data)
+        existing_ad = _find_ad_listing_by_headline(db, organization_id, ad_data["headline"])
+        source = data.get("_source_filename") or "Ads/Flyers import"
+        if existing_ad:
+            _update_ad_listing_partial(db, existing_ad, ad_data)
+            ad_id = existing_ad["ad_listing_id"]
+        else:
+            ad_id = _create_ad_listing(db, organization_id, ad_data, source=source)
+
+        note_bits = []
+        if data.get("source_notes"):
+            note_bits.append(data["source_notes"])
+        if data.get("uncertain_fields"):
+            note_bits.append("Uncertain: " + ", ".join(data["uncertain_fields"]))
+        if note_bits:
+            _add_ad_note(db, ad_id, " ".join(note_bits), source=source)
+
+        token = data.get("_photo_token")
+        if token:
+            if token not in promoted_photos:
+                mime_type = data.get("_photo_mime") or "image/jpeg"
+                pending_path = _pending_ad_path(token, mime_type)
+                promoted_photos[token] = (
+                    _promote_pending_ad_image(pending_path) if pending_path and os.path.exists(pending_path) else None
+                )
+            photo_filename = promoted_photos[token]
+            if photo_filename:
+                _attach_ad_photo_file(db, ad_id, photo_filename, data.get("_photo_mime") or "image/jpeg", source, source)
+
+        db.execute(
+            "UPDATE import_staging_rows SET committed_entity_id = ? WHERE staging_id = ? AND tenant_id = ?",
+            (organization_id, r["staging_id"], g.tenant_id),
+        )
+        committed += 1
+    return committed
+
+
 COMMIT_HANDLERS = {
     "contacts": (_commit_contacts_rows, "contact(s)"),
     "organizations": (_commit_organizations_rows, "organization(s)"),
+    "ads": (_commit_ads_rows, "ad(s)"),
 }
 
 

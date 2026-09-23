@@ -175,8 +175,12 @@ def _classify_org_phone_label(label):
 
 
 def extract_business_card(front_bytes, front_mime, back_bytes=None, back_mime=None):
-    """Returns the parsed card dict (organization_* fields, "contacts" list,
-    source_notes, uncertain_fields). Raises ExtractionError on any failure."""
+    """Returns (parsed, usage): parsed is the card dict (organization_*
+    fields, "contacts" list, source_notes, uncertain_fields); usage is
+    {"model_code": EXTRACTION_MODEL, "tokens_input": int, "tokens_output": int}
+    straight from the API response, for the caller to pass to
+    agents.log_agent_usage() so agent_usage_log can compute the real cost
+    (see agent_billing.py). Raises ExtractionError on any failure."""
     front_bytes, front_mime = _normalize_image(front_bytes, front_mime)
     content = [
         {"type": "image", "source": {"type": "base64", "media_type": front_mime, "data": base64.b64encode(front_bytes).decode("utf-8")}},
@@ -197,6 +201,12 @@ def extract_business_card(front_bytes, front_mime, back_bytes=None, back_mime=No
         )
     except Exception as e:
         raise ExtractionError(f"Claude API request failed: {e}") from e
+
+    usage = {
+        "model_code": EXTRACTION_MODEL,
+        "tokens_input": getattr(message.usage, "input_tokens", None),
+        "tokens_output": getattr(message.usage, "output_tokens", None),
+    }
 
     text = "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
     text = _strip_code_fences(text)
@@ -221,4 +231,4 @@ def extract_business_card(front_bytes, front_mime, back_bytes=None, back_mime=No
         parsed["uncertain_fields"] = list(parsed["uncertain_fields"]) + ["contacts"]
         parsed["source_notes"] = (parsed["source_notes"] + " No named person could be read from this card.").strip()
 
-    return parsed
+    return parsed, usage

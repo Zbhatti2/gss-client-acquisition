@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}GSS System Admin — {{ tenant.tenant_name }} Billing{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <div class="text-uppercase small text-muted fw-semibold">GSS System Admin</div>
+    <h1 class="h3 mb-0">{{ tenant.tenant_name }} — Usage &amp; Profit/Loss</h1>
+  </div>
+  <a href="{{ url_for('billing.admin_catalog') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Catalog</a>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-4">
+  {% for t in tenants %}
+  <a href="{{ url_for('billing.admin_tenant_report', tenant_id=t.tenant_id) }}"
+     class="btn btn-sm {{ 'btn-primary' if t.tenant_id == tenant.tenant_id else 'btn-outline-secondary' }}">{{ t.tenant_name }}</a>
+  {% endfor %}
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped mb-0 align-middle">
+      <thead>
+        <tr><th>Agent</th><th>Plan</th><th>Cycle</th><th>Used</th><th>Billed</th><th>Actual cost</th><th>Margin</th></tr>
+      </thead>
+      <tbody>
+        {% for r in report_rows %}
+        <tr>
+          <td>{{ r.agent_name }}</td>
+          <td class="small text-muted">{{ r.plan_name }}</td>
+          <td class="small text-muted text-nowrap">{{ r.cycle_start.strftime('%b %d') }} – {{ r.cycle_end.strftime('%b %d, %Y') }}</td>
+          <td>{{ r.used }}</td>
+          <td>{% if r.billed is not none %}{{ r.currency }} {{ "%.2f"|format(r.billed) }}{% else %}—{% endif %}</td>
+          <td>{{ r.currency }} {{ "%.4f"|format(r.actual_cost) }}</td>
+          <td>
+            {% if r.margin is not none %}
+            <span class="{{ 'text-success' if r.margin >= 0 else 'text-danger' }}">{{ r.currency }} {{ "%.2f"|format(r.margin) }}</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-5">This tenant isn't Approved for any agents yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

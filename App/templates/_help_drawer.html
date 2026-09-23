@@ -1,0 +1,31 @@
+{# The contextual help drawer shell — included once in base.html for every
+   logged-in page. Its content is filled in entirely by static/js/help.js
+   (fetching from the help blueprint), so this markup never changes per
+   page; only the "?" button that opens it (see _macros.html) varies. #}
+<div class="offcanvas offcanvas-end gss-help-drawer" tabindex="-1" id="gssHelpDrawer" aria-labelledby="gssHelpDrawerLabel">
+  <div class="offcanvas-header border-bottom py-2">
+    <h5 class="offcanvas-title" id="gssHelpDrawerLabel"><i class="bi bi-question-circle me-2"></i>Help</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    <div class="gss-help-body">
+      <div class="gss-help-nav border-end">
+        <div class="p-2 border-bottom">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+            <input type="search" class="form-control border-start-0" id="gssHelpSearch" placeholder="Search help…" autocomplete="off">
+          </div>
+        </div>
+        <div id="gssHelpTree" class="gss-help-tree">
+          <div class="text-muted small p-3">Loading…</div>
+        </div>
+      </div>
+      <div class="gss-help-content">
+        <nav aria-label="breadcrumb" id="gssHelpBreadcrumb" class="small text-muted mb-2"></nav>
+        <div id="gssHelpPage">
+          <div class="text-muted">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

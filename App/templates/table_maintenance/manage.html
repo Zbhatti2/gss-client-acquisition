@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import help_button %}
 {% block title %}Table Maintenance — {{ cfg.label }}{% endblock %}
 {% block content %}
 <nav class="mb-2">
@@ -6,7 +7,10 @@
 </nav>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h3 mb-0">Table Maintenance — {{ cfg.label }}</h1>
-  <a href="{{ url_for('table_maintenance.new_entry', table_key=table_key) }}" class="btn btn-primary"><i class="bi bi-plus-lg"></i> New Entry</a>
+  <div class="d-flex gap-2">
+    {{ help_button('table-maintenance/adding-entries') }}
+    <a href="{{ url_for('table_maintenance.new_entry', table_key=table_key) }}" class="btn btn-primary"><i class="bi bi-plus-lg"></i> New Entry</a>
+  </div>
 </div>
 
 <p class="text-muted small">

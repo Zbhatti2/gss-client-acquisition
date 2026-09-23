@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_macros.html" import help_button %}
+{% block title %}Agents Library{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Agents Library</h1>
+  {{ help_button('agents/overview') }}
+</div>
+<p class="text-muted">Optional AI-powered features your organization can turn on. Each one calls an external AI service (Anthropic's Claude) to do its work, so a System Admin reviews and approves every request before it's available to your users.</p>
+
+<div class="row g-3">
+  {% for a in agents %}
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <h2 class="h5 mb-1">{{ a.name }}</h2>
+          {% if a.status == 'Approved' %}
+          <span class="badge bg-success-subtle text-success">Approved</span>
+          {% elif a.status == 'Requested' %}
+          <span class="badge bg-warning-subtle text-dark">Requested</span>
+          {% elif a.status == 'Denied' %}
+          <span class="badge bg-danger-subtle text-danger">Denied</span>
+          {% elif a.status == 'Revoked' %}
+          <span class="badge bg-secondary-subtle text-secondary">Revoked</span>
+          {% else %}
+          <span class="badge bg-light text-muted border">Not requested</span>
+          {% endif %}
+        </div>
+        {% if a.category %}<div class="small text-muted mb-2">{{ a.category }}</div>{% endif %}
+        <p class="text-muted small mb-3">{{ a.description or "" }}</p>
+        {% if a.notes and a.status == 'Denied' %}
+        <p class="small text-danger mb-3"><i class="bi bi-info-circle"></i> {{ a.notes }}</p>
+        {% endif %}
+
+        {% if a.status in ('Approved', 'Requested') %}
+        <button class="btn btn-outline-secondary btn-sm" type="button" disabled>
+          {{ 'Awaiting approval' if a.status == 'Requested' else 'Already approved' }}
+        </button>
+        {% elif g.role in ('TenantAdmin', 'SystemAdmin') %}
+        <form method="post" action="{{ url_for('agents.request_access', agent_id=a.agent_id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-primary btn-sm" type="submit">
+            {{ 'Request again' if a.status in ('Denied', 'Revoked') else 'Request access' }}
+          </button>
+        </form>
+        {% else %}
+        <p class="small text-muted mb-0">Ask a Tenant Admin to request this for your organization.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <p class="text-muted text-center py-5">No agents are in the library yet.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

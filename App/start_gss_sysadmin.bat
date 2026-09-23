@@ -1,10 +1,16 @@
 @echo off
 setlocal enabledelayedexpansion
-title GSS - Client Acquisition Maximizing Platform
+title GSS - System Admin
 cd /d "%~dp0"
 
 echo ============================================================
-echo  GSS - Client Acquisition Maximizing Platform
+echo  GSS - System Admin launcher
+echo ============================================================
+echo  This starts the same GSS server as start_gss.bat, and makes
+echo  sure the platform-wide SystemAdmin login below always works
+echo  by (re)creating it and locking its password on every start.
+echo  Do not run this at the same time as another GSS launcher --
+echo  they all share one server on port 5000.
 echo ============================================================
 echo.
 
@@ -82,20 +88,35 @@ if errorlevel 1 (
 set "FLASK_APP=app.py"
 
 rem --- First-run database setup ---------------------------------------------
+rem Only creates the schema here -- it deliberately does NOT seed the first
+rem tenant (that's start_gss_tenant.bat's job). A SystemAdmin belongs to no
+rem tenant, so it doesn't need one to exist first.
 if not exist "instance\gss.db" (
     echo.
     echo First run detected - creating the database...
     flask init-db
-    flask seed-tenant
-    echo.
-    echo ============================================================
-    echo  First-time setup complete.
-    echo  Log in with:   Username: Zeb    Password: Zebra
-    echo  Please change this password after your first login
-    echo  ^(System Management -^> Change Password^).
-    echo ============================================================
     echo.
 )
+
+rem --- Ensure the SystemAdmin login exists, and lock its password ----------
+rem create-system-admin only creates the account once (a second run just
+rem reports it already exists, harmlessly); set-password then forces the
+rem password below every single time this launcher starts, so the printed
+rem login always works even if it was changed from inside the app since the
+rem last run.
+echo Ensuring the SystemAdmin login exists...
+flask create-system-admin --username Zbhatti2 --display-name Zbhatti2 --password Zebragss1
+flask set-password --username Zbhatti2 --password Zebragss1
+
+echo.
+echo ============================================================
+echo  Log in as System Admin with:
+echo    Username: Zbhatti2
+echo    Password: Zebragss1
+echo  This takes you straight to Tenant Management, not a
+echo  tenant's Dashboard -- a SystemAdmin belongs to no tenant.
+echo ============================================================
+echo.
 
 echo Starting the GSS server...
 echo   Local access:    http://127.0.0.1:5000
@@ -104,11 +125,17 @@ echo.
 echo Press CTRL+C in this window to stop the server.
 echo.
 
-rem Open the browser a couple seconds after launch, without blocking the server.
-start "" cmd /c "timeout /t 2 /nobreak >nul & start http://127.0.0.1:5000"
+rem Open the browser a couple seconds after launch, without blocking the
+rem server. /B runs this in the background with no console window of its
+rem own (rather than flashing open a second window that closes itself a
+rem couple seconds later) -- one less window to notice or clean up.
+start /B "" cmd /c "timeout /t 2 /nobreak >nul & start http://127.0.0.1:5000/login"
 
+rem Deliberately the LAST command in this script -- nothing follows it, so
+rem Ctrl+C here closes this window directly. Anything after flask run
+rem (an echo, a pause) is exactly what makes Windows pop up its own
+rem "Terminate batch job (Y/N)?" confirmation on Ctrl+C (that prompt only
+rem appears when there's more script left to run after the interrupted
+rem command) and would otherwise leave the window sitting on a "press any
+rem key to continue" pause after you've already stopped the server.
 flask run --host=0.0.0.0 --port=5000
-
-echo.
-echo Server stopped.
-pause

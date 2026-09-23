@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_macros.html" import help_button %}
+{% block title %}GSS System Admin — Agent Requests{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <div class="text-uppercase small text-muted fw-semibold">GSS System Admin</div>
+    <h1 class="h3 mb-0">Agent Requests</h1>
+  </div>
+  {{ help_button('agents/overview') }}
+</div>
+<p class="text-muted">Every tenant's request for a library agent, across the whole platform.</p>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped mb-0 align-middle">
+      <thead>
+        <tr><th>Organization</th><th>Agent</th><th>Status</th><th>Requested</th><th>Decided</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.tenant_name }} <span class="text-muted small">({{ r.tenant_code }})</span></td>
+          <td>{{ r.agent_name }}</td>
+          <td>
+            {% if r.status == 'Approved' %}
+            <span class="badge bg-success-subtle text-success">Approved</span>
+            {% elif r.status == 'Requested' %}
+            <span class="badge bg-warning-subtle text-dark">Requested</span>
+            {% elif r.status == 'Denied' %}
+            <span class="badge bg-danger-subtle text-danger">Denied</span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary">Revoked</span>
+            {% endif %}
+            {% if r.notes %}<div class="small text-muted">{{ r.notes }}</div>{% endif %}
+          </td>
+          <td class="text-nowrap small text-muted">{{ r.requested_at }}</td>
+          <td class="text-nowrap small text-muted">{{ r.decided_at or "—" }}</td>
+          <td class="text-end text-nowrap">
+            <div class="btn-group btn-group-sm">
+              {% if r.status in ('Requested', 'Denied', 'Revoked') %}
+              <form method="post" action="{{ url_for('agents.approve', tenant_agent_id=r.tenant_agent_id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-success" type="submit" title="Approve"><i class="bi bi-check-lg"></i></button>
+              </form>
+              {% endif %}
+              {% if r.status == 'Requested' %}
+              <form method="post" action="{{ url_for('agents.deny', tenant_agent_id=r.tenant_agent_id) }}" class="d-inline" onsubmit="return confirm('Deny this request?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-danger" type="submit" title="Deny"><i class="bi bi-x-lg"></i></button>
+              </form>
+              {% endif %}
+              {% if r.status == 'Approved' %}
+              <form method="post" action="{{ url_for('agents.revoke', tenant_agent_id=r.tenant_agent_id) }}" class="d-inline" onsubmit="return confirm('Revoke access? ' + {{ r.tenant_name | tojson }} + ' will immediately lose use of this agent.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-warning" type="submit" title="Revoke"><i class="bi bi-slash-circle"></i></button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-5">No requests yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
