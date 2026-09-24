@@ -24,11 +24,12 @@ import io
 import json
 import os
 import re
+import threading
 import time
 import uuid
 import zipfile
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, send_from_directory, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, send_from_directory, url_for
 
 from ad_import import ExtractionError as AdExtractionError
 from ad_import import extract_ads_for_import, iter_images_from_zip
@@ -1322,6 +1323,132 @@ def import_ads_flyers_form():
     return render_template("data_exchange/import_ads_flyers_form.html", max_batch_images=MAX_BATCH_AD_IMAGES)
 
 
+# in-memory only, same convention/caveats as security/session_keys.py --
+# fine with this app's single gunicorn worker (see entrypoint.sh), lost on
+# restart, and never shared across processes. batch_id -> {"total", "done",
+# "finished"}, read by import_ads_flyers_status below and written only by
+# _process_ads_flyers_batch's own background thread.
+_ad_import_progress_lock = threading.Lock()
+_ad_import_progress = {}
+
+
+def _process_ads_flyers_batch(app, tenant_id, user_id, batch_id, images):
+    """The actual per-image extraction work, run in a background thread so
+    the request that uploaded the batch (import_ads_flyers_extract below)
+    can return immediately instead of blocking on however many sequential
+    Claude vision calls the batch needs. That blocking used to be exactly
+    what made gunicorn's worker-timeout kill the request mid-batch on a
+    large upload -- and since this app runs a single worker (see
+    entrypoint.sh), it also froze every other user's request for as long as
+    the batch ran. Returning right away fixes both: the worker is free
+    again immediately, and import_ads_flyers_processing.html polls
+    import_ads_flyers_status for a live progress bar instead of just
+    sitting on a blank page.
+
+    A background thread has no Flask request context, so this pushes its
+    own app context (get_db() then works normally, making its own fresh
+    sqlite connection -- the original request's connection is already
+    closed by the time this runs) and sets g.tenant_id/g.user_id by hand,
+    since nothing here is running inside the request that knows those."""
+    with app.app_context():
+        g.tenant_id = tenant_id
+        g.user_id = user_id
+        db = get_db()
+        row_count = 0
+        error_count = 0
+        try:
+            for filename, image_bytes, mime_type in images:
+                try:
+                    ads, usage = extract_ads_for_import(image_bytes, mime_type)
+                except AdExtractionError as e:
+                    error_count += 1
+                    db.execute(
+                        "INSERT INTO import_staging_rows (tenant_id, batch_id, raw_data, validation_status, validation_errors) "
+                        "VALUES (?, ?, ?, 'Invalid', ?)",
+                        (tenant_id, batch_id, json.dumps({"_source_filename": filename}), f"Couldn't read this image: {e}"),
+                    )
+                    with _ad_import_progress_lock:
+                        _ad_import_progress[batch_id]["done"] += 1
+                    continue
+
+                log_agent_usage(tenant_id, "ad_import", user_id=user_id, detail=filename,
+                                model_code=usage["model_code"], tokens_input=usage["tokens_input"], tokens_output=usage["tokens_output"])
+
+                # One photo can hold more than one distinct ad (see
+                # ad_import.extract_ads_for_import) — saved once here, referenced
+                # by every ad row it produced via _photo_token, promoted to
+                # permanent storage at most once per token at commit time.
+                ad_token = uuid.uuid4().hex
+                _save_pending_ad_image(ad_token, image_bytes, mime_type)
+
+                for item in ads:
+                    org_name = (item.get("organization_name") or "").strip()
+                    existing_org = _find_organization_by_name(db, org_name) if org_name else None
+                    contact_name = (item.get("contact_name") or "").strip()
+                    existing_contact = None
+                    if contact_name:
+                        email = (item.get("contact_email") or "").strip()
+                        existing_contact = _find_contact_for_card(
+                            db, [email] if email else [], contact_name,
+                            existing_org["organization_id"] if existing_org else None,
+                        )
+
+                    row_data = dict(item)
+                    row_data["_photo_token"] = ad_token
+                    row_data["_photo_mime"] = mime_type
+                    row_data["_source_filename"] = filename
+                    row_data["_existing_org_id"] = existing_org["organization_id"] if existing_org else None
+                    row_data["_existing_org_name"] = existing_org["organization_name"] if existing_org else None
+                    row_data["_existing_contact_id"] = existing_contact["contact_id"] if existing_contact else None
+                    row_data["_existing_contact_name"] = existing_contact["full_name"] if existing_contact else None
+
+                    if org_name:
+                        status, errors = "Valid", None
+                    else:
+                        status, errors = (
+                            "Invalid",
+                            "No business/organization name could be read from this ad — it can't be imported without one.",
+                        )
+
+                    db.execute(
+                        "INSERT INTO import_staging_rows (tenant_id, batch_id, raw_data, validation_status, validation_errors) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (tenant_id, batch_id, json.dumps(row_data), status, errors),
+                    )
+                    row_count += 1
+                    if status == "Invalid":
+                        error_count += 1
+
+                with _ad_import_progress_lock:
+                    _ad_import_progress[batch_id]["done"] += 1
+
+            db.execute(
+                "UPDATE import_batches SET row_count = ?, error_count = ?, status = 'Validated' WHERE batch_id = ? AND tenant_id = ?",
+                (row_count, error_count, batch_id, tenant_id),
+            )
+            db.commit()
+            log_action("Import", "ads_flyers_batch", batch_id, f"Extracted {row_count} ad(s) from {len(images)} image(s)",
+                        tenant_id=tenant_id, user_id=user_id)
+        except Exception:
+            # Whatever broke, don't strand this batch mid-processing forever
+            # (never shows on the review page) or leave the progress page
+            # polling forever -- record whatever was actually staged before
+            # the failure as the batch's result, same shape as a normal finish.
+            current_app.logger.exception("Ad/Flyer import batch %s failed mid-processing", batch_id)
+            try:
+                db.execute(
+                    "UPDATE import_batches SET row_count = ?, error_count = ?, status = 'Validated' WHERE batch_id = ? AND tenant_id = ?",
+                    (row_count, error_count, batch_id, tenant_id),
+                )
+                db.commit()
+            except Exception:
+                current_app.logger.exception("Ad/Flyer import batch %s: also failed to record the failure", batch_id)
+        finally:
+            with _ad_import_progress_lock:
+                if batch_id in _ad_import_progress:
+                    _ad_import_progress[batch_id]["finished"] = True
+
+
 @data_exchange_bp.route("/import/ads-flyers/extract", methods=["POST"])
 @login_required
 @agent_access_required("ad_import")
@@ -1359,78 +1486,55 @@ def import_ads_flyers_extract():
         "VALUES (?, 'JSON', 'ads', ?, 'Staged', 0)",
         (g.tenant_id, batch_name),
     )
+    db.commit()  # must be committed before the background thread's own connection can see this row
     batch_id = db.execute("SELECT last_insert_rowid() id").fetchone()["id"]
 
-    row_count = 0
-    error_count = 0
-    for filename, image_bytes, mime_type in images:
-        try:
-            ads, usage = extract_ads_for_import(image_bytes, mime_type)
-        except AdExtractionError as e:
-            error_count += 1
-            db.execute(
-                "INSERT INTO import_staging_rows (tenant_id, batch_id, raw_data, validation_status, validation_errors) "
-                "VALUES (?, ?, ?, 'Invalid', ?)",
-                (g.tenant_id, batch_id, json.dumps({"_source_filename": filename}), f"Couldn't read this image: {e}"),
-            )
-            continue
+    with _ad_import_progress_lock:
+        _ad_import_progress[batch_id] = {"total": len(images), "done": 0, "finished": False}
 
-        log_agent_usage(g.tenant_id, "ad_import", user_id=g.user_id, detail=filename,
-                        model_code=usage["model_code"], tokens_input=usage["tokens_input"], tokens_output=usage["tokens_output"])
+    app_obj = current_app._get_current_object()
+    threading.Thread(
+        target=_process_ads_flyers_batch,
+        args=(app_obj, g.tenant_id, g.user_id, batch_id, images),
+        daemon=True,
+    ).start()
 
-        # One photo can hold more than one distinct ad (see
-        # ad_import.extract_ads_for_import) — saved once here, referenced
-        # by every ad row it produced via _photo_token, promoted to
-        # permanent storage at most once per token at commit time.
-        ad_token = uuid.uuid4().hex
-        _save_pending_ad_image(ad_token, image_bytes, mime_type)
+    return redirect(url_for("data_exchange.import_ads_flyers_processing", batch_id=batch_id))
 
-        for item in ads:
-            org_name = (item.get("organization_name") or "").strip()
-            existing_org = _find_organization_by_name(db, org_name) if org_name else None
-            contact_name = (item.get("contact_name") or "").strip()
-            existing_contact = None
-            if contact_name:
-                email = (item.get("contact_email") or "").strip()
-                existing_contact = _find_contact_for_card(
-                    db, [email] if email else [], contact_name,
-                    existing_org["organization_id"] if existing_org else None,
-                )
 
-            row_data = dict(item)
-            row_data["_photo_token"] = ad_token
-            row_data["_photo_mime"] = mime_type
-            row_data["_source_filename"] = filename
-            row_data["_existing_org_id"] = existing_org["organization_id"] if existing_org else None
-            row_data["_existing_org_name"] = existing_org["organization_name"] if existing_org else None
-            row_data["_existing_contact_id"] = existing_contact["contact_id"] if existing_contact else None
-            row_data["_existing_contact_name"] = existing_contact["full_name"] if existing_contact else None
+@data_exchange_bp.route("/import/ads-flyers/processing/<int:batch_id>")
+@login_required
+def import_ads_flyers_processing(batch_id):
+    db = get_db()
+    batch = db.execute(
+        "SELECT * FROM import_batches WHERE batch_id = ? AND tenant_id = ?", (batch_id, g.tenant_id)
+    ).fetchone()
+    if batch is None:
+        abort(404)
+    return render_template("data_exchange/import_ads_flyers_processing.html", batch=batch)
 
-            if org_name:
-                status, errors = "Valid", None
-            else:
-                status, errors = (
-                    "Invalid",
-                    "No business/organization name could be read from this ad — it can't be imported without one.",
-                )
 
-            db.execute(
-                "INSERT INTO import_staging_rows (tenant_id, batch_id, raw_data, validation_status, validation_errors) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (g.tenant_id, batch_id, json.dumps(row_data), status, errors),
-            )
-            row_count += 1
-            if status == "Invalid":
-                error_count += 1
-
-    db.execute(
-        "UPDATE import_batches SET row_count = ?, error_count = ?, status = 'Validated' WHERE batch_id = ? AND tenant_id = ?",
-        (row_count, error_count, batch_id, g.tenant_id),
-    )
-    db.commit()
-    log_action("Import", "ads_flyers_batch", batch_id, f"Extracted {row_count} ad(s) from {len(images)} image(s)")
-    flash(f"Extracted {row_count} ad(s) from {len(images)} image(s) — review before committing.", "success")
-    return redirect(url_for("data_exchange.review_batch", batch_id=batch_id))
+@data_exchange_bp.route("/import/ads-flyers/status/<int:batch_id>")
+@login_required
+def import_ads_flyers_status(batch_id):
+    """Polled by import_ads_flyers_processing.html's progress bar.
+    _ad_import_progress is this process's own in-memory view of a batch
+    _process_ads_flyers_batch's background thread is still working on. A
+    batch with no entry there any more (already finished and the page just
+    hasn't redirected yet, or this process restarted mid-batch) falls back
+    to the import_batches row's own status column, so the progress page can
+    never end up polling forever."""
+    db = get_db()
+    batch = db.execute(
+        "SELECT status FROM import_batches WHERE batch_id = ? AND tenant_id = ?", (batch_id, g.tenant_id)
+    ).fetchone()
+    if batch is None:
+        abort(404)
+    with _ad_import_progress_lock:
+        progress = dict(_ad_import_progress.get(batch_id, {}))
+    if not progress:
+        return jsonify(done=0, total=0, finished=(batch["status"] != "Staged"))
+    return jsonify(done=progress["done"], total=progress["total"], finished=progress["finished"])
 
 
 @data_exchange_bp.route("/import/ads-flyers/pending/<token>")
