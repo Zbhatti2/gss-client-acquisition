@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Import Ads/Flyers — Processing{% endblock %}
+{% block content %}
+<h1 class="h3 mb-1">Reading your photos…</h1>
+<p class="text-muted mb-4">
+  Each photo is read by Claude one at a time, so a full batch can take a few minutes — this page updates itself
+  and will take you to the review screen the moment it's done. Feel free to leave this page open in the
+  background; the import keeps running either way.
+</p>
+
+<div class="card shadow-sm border-0" style="max-width: 640px;">
+  <div class="card-body">
+    <div class="d-flex justify-content-between mb-2">
+      <span id="ads-progress-label">Starting…</span>
+      <span id="ads-progress-elapsed" class="text-muted small"></span>
+    </div>
+    <div class="progress" style="height: 1.5rem;" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="ads-progress-bar-wrap">
+      <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="ads-progress-bar" style="width: 100%"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var batchId = {{ batch.batch_id }};
+  var statusUrl = {{ url_for('data_exchange.import_ads_flyers_status', batch_id=batch.batch_id) | tojson }};
+  var reviewUrl = {{ url_for('data_exchange.review_batch', batch_id=batch.batch_id) | tojson }};
+  var label = document.getElementById('ads-progress-label');
+  var elapsedEl = document.getElementById('ads-progress-elapsed');
+  var bar = document.getElementById('ads-progress-bar');
+  var barWrap = document.getElementById('ads-progress-bar-wrap');
+  var startedAt = Date.now();
+  var pollFailures = 0;
+
+  function formatElapsed() {
+    var secs = Math.floor((Date.now() - startedAt) / 1000);
+    var m = Math.floor(secs / 60), s = secs % 60;
+    return m > 0 ? (m + 'm ' + s + 's') : (s + 's');
+  }
+
+  function tick() {
+    elapsedEl.textContent = formatElapsed();
+    fetch(statusUrl, { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
+      .then(function (data) {
+        pollFailures = 0;
+        if (data.total > 0) {
+          var pct = Math.max(4, Math.round((data.done / data.total) * 100));
+          bar.style.width = pct + '%';
+          barWrap.setAttribute('aria-valuenow', pct);
+          label.textContent = 'Processed ' + data.done + ' of ' + data.total + ' image(s)…';
+        } else {
+          label.textContent = 'Starting…';
+        }
+        if (data.finished) {
+          bar.classList.remove('progress-bar-animated');
+          label.textContent = 'Done — opening the review page…';
+          window.location.href = reviewUrl;
+          return;
+        }
+        window.setTimeout(tick, 1500);
+      })
+      .catch(function () {
+        // A dropped connection or a mid-deploy restart shouldn't strand the
+        // person on this page forever -- keep trying, but back off and
+        // eventually just send them to the review page (it'll show
+        // whatever committed so far, or a 404 they can act on).
+        pollFailures += 1;
+        if (pollFailures >= 20) {
+          window.location.href = reviewUrl;
+          return;
+        }
+        window.setTimeout(tick, 2000);
+      });
+  }
+
+  tick();
+})();
+</script>
+{% endblock %}
