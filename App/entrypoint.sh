@@ -16,6 +16,18 @@
 #   deploy via Coolify's "Execute Command" / a shell into the running
 #   container:
 #       flask --app app create-system-admin
+# * Exactly ONE gunicorn worker, on purpose -- see security/session_keys.py.
+#   The logged-in tenant's decrypted field-encryption key is deliberately
+#   kept OUT of the session cookie (it's cached server-side, in plain
+#   process memory, keyed by an opaque token) and is never written to disk.
+#   That cache is a single Python dict local to one process. With more than
+#   one gunicorn worker, a request can land on a worker that never saw that
+#   dict entry, and login_required() (auth/decorators.py) treats that as
+#   "not really logged in" and bounces back to /login -- intermittently,
+#   depending on which worker handled that particular request. Fine for this
+#   MVP's traffic (a couple of small tenants); before scaling beyond one
+#   process, move that cache to a shared store (e.g. Redis, or a
+#   short-lived DB table keyed by a hashed token) rather than raising -w.
 set -e
 
 if [ ! -f "instance/gss.db" ]; then
@@ -26,4 +38,4 @@ if [ ! -f "instance/gss.db" ]; then
     echo "[entrypoint] Next: run 'flask --app app create-system-admin' once to create your SystemAdmin login."
 fi
 
-exec gunicorn -w 2 -b 0.0.0.0:5000 --access-logfile - --error-logfile - app:app
+exec gunicorn -w 1 -b 0.0.0.0:5000 --access-logfile - --error-logfile - app:app
