@@ -1,7 +1,0 @@
-# Site-generator source (build.py/generate.py/pages_*.py) -- not needed at
-# runtime, the generated .html files in this repo are what's actually
-# served. Keeping them out of the built image keeps it minimal.
-src/
-README.md
-.git
-.gitignore
