@@ -161,6 +161,19 @@ CREATE TABLE tenants (
     address_city    TEXT,
     address_state   TEXT,
     address_postal_code TEXT,
+    -- Lead intake (public-website contact-form -> Client Acquisition):
+    -- see blueprints/public_leads.py. lead_notification_email is plain text
+    -- -- a destination address, not a secret, so it doesn't go through the
+    -- DEK envelope-encryption every other sensitive column here uses.
+    -- lead_intake_token is a random opaque bearer token embedded in the
+    -- tenant's own public website's client-side JS -- it authenticates
+    -- "may create one Opportunity for this tenant" only, nothing else, so
+    -- its exposure in public JS is an accepted, scoped trade-off (see the
+    -- module docstring in blueprints/public_leads.py). NULL until a
+    -- TenantAdmin turns lead intake on via System Management's "Lead
+    -- Intake" config (blueprints/system_mgmt.py's lead_intake_config()).
+    lead_notification_email TEXT,
+    lead_intake_token TEXT UNIQUE,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

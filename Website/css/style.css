@@ -1,0 +1,192 @@
+/* Granite Signal Systems -- shared site styles. Bootstrap 5 (CDN) supplies
+   layout/components; this file only sets the green brand palette and a few
+   small overrides so the site doesn't look like unstyled Bootstrap. */
+
+:root {
+  --gss-green-900: #0f3d24;
+  --gss-green-800: #145430;
+  --gss-green-700: #1b6b3a;
+  --gss-green-600: #227d44;
+  --gss-green-500: #2e9e57;
+  --gss-green-100: #e6f4ea;
+  --gss-green-50:  #f4faf6;
+  --gss-ink: #1f2a24;
+  --gss-muted: #5b6b60;
+}
+
+body {
+  color: var(--gss-ink);
+  background-color: #ffffff;
+}
+
+a {
+  color: var(--gss-green-700);
+}
+a:hover {
+  color: var(--gss-green-900);
+}
+
+/* ---------- Navbar ---------- */
+.gss-navbar {
+  background-color: var(--gss-green-900);
+}
+.gss-navbar .navbar-brand {
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.gss-navbar .nav-link {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+}
+.gss-navbar .nav-link.active,
+.gss-navbar .nav-link:hover {
+  color: #ffffff;
+}
+.gss-navbar .btn-login {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+}
+.gss-navbar .btn-login:hover {
+  background-color: var(--gss-green-500);
+  border-color: var(--gss-green-500);
+  color: #ffffff;
+}
+
+/* ---------- Logo (placeholder) ---------- */
+.gss-logo-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--gss-green-500), var(--gss-green-800));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Hero ---------- */
+.gss-hero {
+  background: linear-gradient(160deg, var(--gss-green-900) 0%, var(--gss-green-700) 60%, var(--gss-green-600) 100%);
+  color: #ffffff;
+  padding: 4.5rem 0 5rem;
+}
+.gss-hero h1 {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.gss-hero .lead {
+  color: rgba(255, 255, 255, 0.9);
+}
+.gss-hero .btn-primary {
+  background-color: var(--gss-green-500);
+  border-color: var(--gss-green-500);
+}
+.gss-hero .btn-primary:hover {
+  background-color: #ffffff;
+  border-color: #ffffff;
+  color: var(--gss-green-800);
+}
+.gss-hero .btn-outline-light:hover {
+  color: var(--gss-green-800);
+}
+
+/* ---------- Page header (non-home pages) ---------- */
+.gss-page-header {
+  background-color: var(--gss-green-900);
+  color: #ffffff;
+  padding: 3rem 0;
+}
+.gss-page-header h1 { font-weight: 800; }
+.gss-page-header p { color: rgba(255,255,255,0.85); }
+
+/* ---------- Sections ---------- */
+.gss-section-alt {
+  background-color: var(--gss-green-50);
+}
+.gss-eyebrow {
+  color: var(--gss-green-700);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+}
+.gss-card {
+  border: 1px solid var(--gss-green-100);
+  border-radius: 0.75rem;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.gss-card:hover {
+  box-shadow: 0 0.5rem 1.25rem rgba(15, 61, 36, 0.12);
+  transform: translateY(-2px);
+}
+.gss-icon-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background-color: var(--gss-green-100);
+  color: var(--gss-green-700);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+}
+
+.gss-table {
+  --bs-table-bg: transparent;
+}
+.gss-table thead th {
+  background-color: var(--gss-green-100);
+  color: var(--gss-green-900);
+  border-bottom: none;
+}
+
+.gss-quote {
+  border-left: 4px solid var(--gss-green-500);
+  padding-left: 1.25rem;
+  font-style: italic;
+  color: var(--gss-green-900);
+}
+
+.gss-badge-soft {
+  background-color: var(--gss-green-100);
+  color: var(--gss-green-800);
+  font-weight: 600;
+}
+
+/* ---------- Footer ---------- */
+.gss-footer {
+  background-color: var(--gss-green-900);
+  color: rgba(255, 255, 255, 0.75);
+  padding: 2.5rem 0;
+}
+.gss-footer a {
+  color: rgba(255, 255, 255, 0.85);
+}
+.gss-footer a:hover {
+  color: #ffffff;
+}
+
+/* ---------- Contact form ---------- */
+.gss-form-status {
+  display: none;
+}
+.gss-form-status.gss-visible {
+  display: block;
+}
+/* Honeypot field -- present in the DOM and tabbable-avoidant, but never
+   visible to a real visitor. A real browser leaves it empty; a bot filling
+   every field in a scraped form fills it too. */
+.gss-hp-field {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

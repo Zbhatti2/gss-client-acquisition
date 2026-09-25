@@ -17,12 +17,14 @@ record to belong to.
 import csv
 import json
 import os
+import secrets
 import shutil
 import sqlite3
 from datetime import datetime
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, send_file, session, url_for
 
+import email_notify
 from auth.decorators import login_required, system_admin_required, tenant_admin_required
 from security.passwords import hash_password, verify_password
 from config import Config
@@ -102,6 +104,69 @@ def change_password():
         return redirect(url_for("system_mgmt.index"))
 
     return render_template("system/change_password.html")
+
+
+# --------------------------------------------------------------- lead intake
+
+@system_mgmt_bp.route("/lead-intake")
+@tenant_admin_required
+def lead_intake_config():
+    """Config screen for the public website contact-form integration (see
+    blueprints/public_leads.py) — the "Config button" on the Account card
+    the user asked for. TenantAdmin only, same reasoning as Manage Users:
+    the intake token is effectively a standing credential for this tenant
+    (see public_leads.py's module docstring on its scope), and the
+    notification email decides where every website lead gets sent."""
+    db = get_db()
+    tenant = db.execute(
+        "SELECT lead_notification_email, lead_intake_token FROM tenants WHERE tenant_id = ?",
+        (g.tenant_id,),
+    ).fetchone()
+    return render_template(
+        "system/lead_intake.html",
+        tenant=tenant,
+        smtp_configured=email_notify.is_configured(),
+    )
+
+
+@system_mgmt_bp.route("/lead-intake/notification-email", methods=["POST"])
+@tenant_admin_required
+def update_lead_notification_email():
+    email = request.form.get("lead_notification_email", "").strip()
+    db = get_db()
+    db.execute(
+        "UPDATE tenants SET lead_notification_email = ?, updated_at = datetime('now') WHERE tenant_id = ?",
+        (email or None, g.tenant_id),
+    )
+    db.commit()
+    log_action(
+        "Update", "tenants", g.tenant_id,
+        f"Lead intake notification email set to {email!r}" if email else "Lead intake notification email cleared",
+    )
+    flash("Lead notification email updated.", "success")
+    return redirect(url_for("system_mgmt.lead_intake_config"))
+
+
+@system_mgmt_bp.route("/lead-intake/regenerate-token", methods=["POST"])
+@tenant_admin_required
+def regenerate_lead_intake_token():
+    """Issues a brand new lead_intake_token, immediately invalidating the
+    old one. Use when a token may have leaked somewhere it shouldn't have
+    (beyond the tenant's own public website's JS, which is its normal,
+    expected home — see public_leads.py), or simply to rotate it. Whatever
+    website currently embeds the old token must be updated with the new
+    one or its contact form will start getting "Invalid token." errors —
+    the confirmation dialog in lead_intake.html says so."""
+    db = get_db()
+    new_token = secrets.token_urlsafe(32)
+    db.execute(
+        "UPDATE tenants SET lead_intake_token = ?, updated_at = datetime('now') WHERE tenant_id = ?",
+        (new_token, g.tenant_id),
+    )
+    db.commit()
+    log_action("Update", "tenants", g.tenant_id, "Lead intake token regenerated")
+    flash("A new lead intake token was generated — update your website with the new snippet below.", "success")
+    return redirect(url_for("system_mgmt.lead_intake_config"))
 
 
 # Backups, restore, and the raw database health check touch the WHOLE

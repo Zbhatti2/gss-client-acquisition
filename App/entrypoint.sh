@@ -28,6 +28,21 @@
 #   MVP's traffic (a couple of small tenants); before scaling beyond one
 #   process, move that cache to a shared store (e.g. Redis, or a
 #   short-lived DB table keyed by a hashed token) rather than raising -w.
+# * --timeout 300 (gunicorn's default is 30s) -- Import Ads/Flyers
+#   (blueprints/data_exchange.py's import_ads_flyers_extract) makes one
+#   blocking Claude vision API call PER uploaded image, sequentially, all
+#   inside a single request before it returns the review page. A batch of
+#   more than a handful of images easily runs past 30s, which used to make
+#   gunicorn's master kill the worker mid-batch (WORKER TIMEOUT in the log)
+#   -- and because there's only the one worker above, that also made the
+#   whole app briefly unreachable for every other user until a replacement
+#   worker booted. 300s comfortably covers a full MAX_BATCH_AD_IMAGES=40
+#   batch; still worth uploading a handful of images at a time rather than
+#   the full 40 in one go, since nothing else can be served while a batch
+#   this size is being processed (the single-worker trade-off above).
+#   Same real fix as the multi-worker note above: move this to background
+#   processing (return immediately, process the batch async) before this
+#   feature sees meaningfully heavier use.
 set -e
 
 if [ ! -f "instance/gss.db" ]; then
@@ -38,4 +53,4 @@ if [ ! -f "instance/gss.db" ]; then
     echo "[entrypoint] Next: run 'flask --app app create-system-admin' once to create your SystemAdmin login."
 fi
 
-exec gunicorn -w 1 -b 0.0.0.0:5000 --access-logfile - --error-logfile - app:app
+exec gunicorn -w 1 -b 0.0.0.0:5000 --timeout 300 --access-logfile - --error-logfile - app:app

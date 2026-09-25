@@ -51,10 +51,17 @@ def provision_tenant(db, tenant_name: str, username: str, display_name: str, pas
     dek_wrapped = crypto.wrap_tenant_dek(dek)
     tenant_code = tenant_code or slugify_tenant_code(tenant_name)
     account_number = next_account_number(db)
+    # Generated up front for every tenant, same as dek_wrapped/account_number
+    # above -- lead intake (blueprints/public_leads.py) stays opt-in (see
+    # schema.sql) since lead_notification_email is left NULL, but the token
+    # itself exists from day one so a TenantAdmin can turn intake on later
+    # without a separate "generate my token" step.
+    lead_intake_token = secrets.token_urlsafe(32)
 
     cur = db.execute(
-        "INSERT INTO tenants (tenant_code, tenant_name, dek_wrapped, account_number) VALUES (?, ?, ?, ?)",
-        (tenant_code, tenant_name, dek_wrapped, account_number),
+        "INSERT INTO tenants (tenant_code, tenant_name, dek_wrapped, account_number, lead_intake_token) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (tenant_code, tenant_name, dek_wrapped, account_number, lead_intake_token),
     )
     tenant_id = cur.lastrowid
 

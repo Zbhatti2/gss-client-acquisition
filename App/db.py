@@ -999,6 +999,40 @@ def _migration_client_acquisition_module(db):
     db.commit()
 
 
+def _migration_lead_intake(db):
+    """Adds tenants.lead_notification_email and tenants.lead_intake_token
+    (see schema.sql's comment on these columns for what they're for --
+    the public-website lead-capture-form integration in
+    blueprints/public_leads.py). ALTER TABLE ADD COLUMN can't carry a
+    UNIQUE constraint in SQLite, so uniqueness on lead_intake_token is
+    enforced with a separate index instead, same approach as
+    _migration_account_number_infra above.
+
+    Every existing tenant is also backfilled with a freshly generated
+    token here (secrets.token_urlsafe(32), the same generator auth/
+    routes.py and security/csrf.py already use for bearer-style tokens)
+    so lead intake can be turned on immediately via System Management's
+    config screen without a separate "generate my first token" step --
+    lead_notification_email stays NULL (opt-in: intake is inert for a
+    tenant until a TenantAdmin sets a destination address)."""
+    if not _column_exists(db, "tenants", "lead_notification_email"):
+        db.execute("ALTER TABLE tenants ADD COLUMN lead_notification_email TEXT")
+    if not _column_exists(db, "tenants", "lead_intake_token"):
+        db.execute("ALTER TABLE tenants ADD COLUMN lead_intake_token TEXT")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_lead_intake_token ON tenants(lead_intake_token)")
+    db.commit()
+
+    import secrets
+
+    rows = db.execute("SELECT tenant_id FROM tenants WHERE lead_intake_token IS NULL").fetchall()
+    for row in rows:
+        db.execute(
+            "UPDATE tenants SET lead_intake_token = ? WHERE tenant_id = ?",
+            (secrets.token_urlsafe(32), row["tenant_id"]),
+        )
+    db.commit()
+
+
 # Append-only. Each entry is (unique_name, function(db)). Never edit or
 # remove a past entry once shipped — a database that already applied it
 # only cares that the name is still recorded in schema_migrations; add a
@@ -1024,6 +1058,7 @@ MIGRATIONS = [
     ("2026_09_backfill_tenant_account_numbers", _migration_backfill_tenant_account_numbers),
     ("2026_09_agents_billing", _migration_agents_billing),
     ("2026_09_client_acquisition_module", _migration_client_acquisition_module),
+    ("2026_09_lead_intake", _migration_lead_intake),
 ]
 
 

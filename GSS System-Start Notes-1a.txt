@@ -3,19 +3,87 @@ GSS System
 cd "D:\Codegen\Claude\GSS"
 Set-ExecutionPolicy Bypass -Scope Process
 
-thtp://127.0.0.1:5000
+
+System Level (GSS)
+=====================
+PS D:\Codegen\Claude\GSS\App> venv\Scripts\activate
+(venv) PS D:\Codegen\Claude\GSS\App> flask --app app create-system-admin
+Username: Zbhatti2
+Display name: Zeb Bhatti
+Password: Zebragss1
+Created SystemAdmin 'Zbhatti2'. Log in at /login with this username and password.
+(venv) PS D:\Codegen\Claude\GSS\App>
+
+
+
+
+http://127.0.0.1:5000
 Log in with the admin account:
  
-
 First Tenant: 
-Name: "Granite Signal Systems (GSS)"
+Name: "Granite Signal Systems"
 Address: 104 Old Winslow Road
 Wilmot, NH. 03287
-
 Phone: +1-603-975-7200
 
-Log in with the admin account:
-Zeb. / `Zebra`
+Log in for Tenant#1 admin account:
+Zeb. / `Zebra123`
 
 
+SETTING UP GIT
+===============
+#Tell git who you are (one-time, if you haven't already)
+git config --global user.name "Zbhatti2"
+git config --global user.email "zbhatti2@gmail.com"
 
+#Initialize the repo
+git init -b main
+
+## Double-check the .gitignore before staging anything
+
+Open .gitignore in Notepad/VS Code and confirm it has these lines (it already does, per what I read):
+
+.env
+instance/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+This is what keeps your live API key (.env) and your live database + encryption keys (instance/gss.db, instance/tenant_master.key, instance/secret_key) out of the repo entirely.
+
+## Stage everything, then verify before committing
+git add .
+git status
+
+Look at the git status output carefully. You should not see .env or anything under instance/ listed. If you do, stop — don't commit — and tell me, since that means the .gitignore isn't catching something.
+
+##First commit
+git commit -m "Initial commit: GSS Flask app"
+
+## Create the empty repo on GitHub
+Go to github.com, sign in, click the + in the top right → New repository. 
+
+https://github.com
+(UID: Zbhatti2/ Zebragithub1955!)
+
+Name it (e.g. gss-client-acquisition).
+
+Set it to Private — this is business software with your client-acquisition logic in it, not something to make public.
+
+NOTE: Do not check "Add a README", "Add .gitignore", or "Choose a license" — your local repo already has commits, and starting the GitHub side empty avoids a merge conflict.
+
+Click Create repository. GitHub will show you a page with a repo URL — copy the HTTPS one, something like https://github.com/<your-username>/gss-client-acquisition.git.
+
+##Connect your local repo to it:
+git remote add origin https://github.com/Zbhatti2/gss-client-acquisition.git
+
+
+##Push
+git push -u origin main
+
+
+## Going forward, any time you want to save changes:
+git add .
+git commit -m "describe what changed"
+git push

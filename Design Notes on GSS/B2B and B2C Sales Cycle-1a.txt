@@ -1,0 +1,94 @@
+Full Prospecting-to-Close" cycle for a B2B SaaS or professional services environment (the most complex and common use case).
+
+Here is the 9-step cycle, broken into three distinct phases: Find, Engage, and Convert.
+
+Phase 1: FIND (The Foundation)
+
+Goal: Identify high-probability targets and gather intelligence.
+
+Step 1: Ideal Customer Profile (ICP) Refinement
+Do not start with a list. Start with a hypothesis. Define the firmographic (industry, revenue, employee count) and technographic (tools they currently use) traits of your best customers. Also define your "Negative ICP" (who you will NOT sell to).
+
+Action: 
+Create a 5-point checklist that a lead must pass to enter your cycle.
+
+Step 2: Lead Generation & List Building
+Source your contacts. 
+
+Outbound tools: 
+LinkedIn Sales Navigator, 
+ZoomInfo, 
+
+Inbound signals: 
+website visitors via Clearbit, 
+content downloads).
+
+Action: 
+Build a list of 100-200 targeted accounts. For each account, identify the "Economic Buyer" (the person with budget authority) and "Champions" (day-to-day users who feel the pain). Aim for 3-5 contacts per account.
+
+Step 3: Deep Research & Trigger Events
+Research the company
+
+Action: 
+Identify a "Trigger Event"—a specific change that makes your solution relevant right now (e.g., "I see you just hired a new VP of Sales," or "I noticed your company posted 15 new engineering roles").
+
+Phase 2: ENGAGE (The Multi-Channel Outreach)
+Goal: Earn the right to a conversation by providing value, not just pitching.
+
+Step 4: The Multi-Channel Cadence
+Design a 12-15 touch sequence over 3 weeks. Do not rely on email alone. Use a "Surround Sound" approach:
+
+Day 1: Personalized LinkedIn connection request + Voice note (via LinkedIn).
+
+Day 2: Short, trigger-event based email (no attachments, just 3 sentences asking a question).
+
+Day 4: Cold call (leave a voicemail referencing the email).
+
+Day 7: Send a 2-minute Loom video walking through their specific LinkedIn profile and how you solve a problem they publicly mentioned.
+
+Day 10: Send a physical item (e.g., a handwritten note or a relevant industry report) via mail.
+
+Day 14: "Break-up" email—polite, stating you will close their file unless they reply.
+
+Step 5: The Discovery Call (The "Chase the Pain" Call)
+The prospect replies or answers the phone. Crucial rule: Do not pitch your product yet. This call is 100% about diagnosing their current state.
+
+Action:
+Use the SPIN framework (Situation, Problem, Implication, Need-Payoff). Ask questions like: "What are you currently using to solve X?" and "What happens if this problem doesn't get fixed in the next quarter?" Quantify the cost of their problem in dollars or hours.
+
+Step 6: The "Mutual Action Plan" (MAP) Proposal
+Based on the discovery, send a 1-page PDF. This is not a price quote. It is a roadmap of the next 30 days.
+
+Action: 
+The MAP includes: (1) The problem you both agree needs solving. (2) The 3-step evaluation process (e.g., Security Review, Technical Demo, ROI Calculation). (3) The stakeholders you need to meet. (4) A proposed timeline to a decision. Get their written buy-in on this process before moving forward.
+
+Phase 3: CONVERT (The Evaluation & Close)
+Goal: Guide the internal buying committee to a consensus and secure the signature.
+
+Step 7: The Orchestrated Demo (POC/Trial)
+Now you present your solution. However, you do not show every feature. You customize the demo strictly around the pain points uncovered in Step 5.
+
+Action: 
+If it's a technical product, run a 7-day Proof of Concept (POC) with their actual data. Set a "Success Criteria" document before the POC starts, defining exactly what "winning" looks like (e.g., "We will reduce load time by 40%").
+
+Step 8: The "War Room" & Stakeholder Mapping
+During the POC/demo phase, your champion is selling internally for you. You must help them.
+
+Action: 
+Ask your champion: "Who else needs to sign off on this? What is their primary objection (cost, security, change management)?"
+
+Create a tailored 1-pager for the CFO (ROI) and a 1-pager for the CTO (Security/Integration). Schedule a joint meeting with all decision-makers to review the POC results together.
+
+Step 9: The Commercial Proposal & Closure
+Only after the POC passes and all stakeholders have verbally agreed does the pricing proposal go out.
+
+Action: 
+Send the contract with a clear expiration date (e.g., "Valid for 5 business days").
+
+Schedule a "Decision Review" call for 48 hours later. On that call, do not ask, "Are you ready to buy?" Instead ask, "Based on our Mutual Action Plan, we agreed to decide by Friday. What is standing in the way of us hitting that deadline?" Handle the final legal/security paperwork, get the e-signature, and transition the account to Customer Success.
+
+The "Killer" Prospecting Rule (The Flow-Back)
+A cycle isn't a straight line; it's a sieve. After Step 3, if they don't engage, they flow back to Nurturing (monthly relevant content). After Step 8, if they object on price, they flow back to Step 5 (re-discovery to re-quantify the value).
+
+Timeline for this cycle:
+A standard B2B prospecting cycle from first touch to close takes 30 to 90 days. If it goes beyond 90 days without a signed contract, the probability of closing drops to under 20%—at that point, disqualify them and move them to a "Future Date" folder to restart the cycle in 6 months.

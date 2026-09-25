@@ -124,6 +124,7 @@ def create_app():
     from blueprints.tenants_admin import tenants_admin_bp
     from blueprints.client_acquisition import client_acquisition_bp
     from blueprints.customer_service import customer_service_bp
+    from blueprints.public_leads import public_leads_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -142,6 +143,10 @@ def create_app():
     app.register_blueprint(billing_bp, url_prefix="/billing")
     app.register_blueprint(users_bp, url_prefix="/users")
     app.register_blueprint(tenants_admin_bp, url_prefix="/platform/tenants")
+    # Public, unauthenticated (see blueprints/public_leads.py's module
+    # docstring for the token-based auth model) -- a tenant's own website
+    # posts here directly, cross-origin, with no GSS session.
+    app.register_blueprint(public_leads_bp, url_prefix="/api/public")
 
     app.jinja_env.globals["modules"] = MODULES
     app.jinja_env.filters["format_phone"] = format_phone

@@ -1367,6 +1367,11 @@ def _process_ads_flyers_batch(app, tenant_id, user_id, batch_id, images):
                         "VALUES (?, ?, ?, 'Invalid', ?)",
                         (tenant_id, batch_id, json.dumps({"_source_filename": filename}), f"Couldn't read this image: {e}"),
                     )
+                    db.execute(
+                        "UPDATE import_batches SET row_count = ?, error_count = ? WHERE batch_id = ? AND tenant_id = ?",
+                        (row_count, error_count, batch_id, tenant_id),
+                    )
+                    db.commit()
                     with _ad_import_progress_lock:
                         _ad_import_progress[batch_id]["done"] += 1
                     continue
@@ -1419,6 +1424,18 @@ def _process_ads_flyers_batch(app, tenant_id, user_id, batch_id, images):
                     if status == "Invalid":
                         error_count += 1
 
+                # Committed once per image, not once for the whole batch --
+                # a batch can run for several minutes against the live API,
+                # and a mid-batch crash (or a redeploy landing mid-batch)
+                # should lose at most the one image in flight, not
+                # everything staged so far. It also keeps this connection's
+                # write transaction short-lived instead of held open for
+                # the entire batch.
+                db.execute(
+                    "UPDATE import_batches SET row_count = ?, error_count = ? WHERE batch_id = ? AND tenant_id = ?",
+                    (row_count, error_count, batch_id, tenant_id),
+                )
+                db.commit()
                 with _ad_import_progress_lock:
                     _ad_import_progress[batch_id]["done"] += 1
 

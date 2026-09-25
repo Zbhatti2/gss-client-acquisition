@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Lead Intake Config{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Lead Intake Config</h1>
+  <a href="{{ url_for('system_mgmt.index') }}" class="btn btn-outline-secondary btn-sm">Back to System Management</a>
+</div>
+<p class="text-muted" style="max-width: 720px;">
+  Controls the contact form on your organization's own public website. A submission there is added directly to
+  <strong>Client Acquisition</strong> as a new Organization, Contact, and Opportunity — no login required on the
+  website's side. It's authenticated instead by the token below, embedded in that website's code.
+</p>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <h2 class="h5">Notification email</h2>
+        <p class="text-muted small">Every new website lead sends a short email here, in addition to appearing in Client Acquisition.</p>
+        <form method="post" action="{{ url_for('system_mgmt.update_lead_notification_email') }}" class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="email" class="form-control" name="lead_notification_email"
+                 value="{{ tenant.lead_notification_email or '' }}" placeholder="leads@yourcompany.com">
+          <button class="btn btn-outline-primary text-nowrap" type="submit">Save</button>
+        </form>
+        {% if not smtp_configured %}
+        <div class="alert alert-warning mt-3 mb-0 small">
+          <i class="bi bi-exclamation-triangle"></i>
+          Outbound email isn't set up on the server yet (no SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD configured), so
+          notification emails won't go out until that's done — leads are still saved to Client Acquisition either way.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <h2 class="h5">Intake token</h2>
+        <p class="text-muted small">Identifies your organization to the lead-intake endpoint — anyone with this token can
+          add a lead to your pipeline, and nothing else, so it's safe to embed in your website's public code (see the
+          snippet below), but don't share it anywhere unrelated to that.</p>
+        <div class="input-group mb-2">
+          <input type="text" class="form-control font-monospace small" id="intake-token" value="{{ tenant.lead_intake_token }}" readonly>
+          <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('intake-token').value)">
+            <i class="bi bi-clipboard"></i> Copy
+          </button>
+        </div>
+        <form method="post" action="{{ url_for('system_mgmt.regenerate_lead_intake_token') }}"
+              onsubmit="return confirm('This immediately invalidates the current token. Your website\'s contact form will stop working until you update it with the new one. Continue?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-danger btn-sm" type="submit"><i class="bi bi-arrow-repeat"></i> Regenerate token</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm border-0">
+      <div class="card-body">
+        <h2 class="h5">Website snippet</h2>
+        <p class="text-muted small">Paste this into your website's contact-form handler — it POSTs the form fields to
+          Client Acquisition. <code>organization_name</code> and at least one of <code>contact_name</code>/
+          <code>contact_email</code>/<code>contact_phone</code> are required; <code>message</code> is optional. The
+          <code>website</code> field is a spam trap — leave that input on the page but hidden from real visitors
+          (e.g. positioned off-screen), never filled in.</p>
+        <pre class="bg-light p-3 small mb-0" style="white-space: pre-wrap;"><code>fetch("{{ request.url_root.rstrip('/') }}{{ url_for('public_leads.submit_lead') }}", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    token: "{{ tenant.lead_intake_token }}",
+    organization_name: form.organization_name.value,
+    contact_name: form.contact_name.value,
+    contact_email: form.contact_email.value,
+    contact_phone: form.contact_phone.value,
+    message: form.message.value,
+    website: form.website.value  // honeypot -- must stay empty
+  })
+})
+  .then(r =&gt; r.json())
+  .then(data =&gt; { if (data.ok) { /* show a thank-you message */ } else { /* show data.error */ } });</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

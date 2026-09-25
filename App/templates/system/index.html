@@ -27,6 +27,9 @@
           <dt class="col-sm-5">Last backup</dt><dd class="col-sm-7">{{ last_backup_at or "Never" }}</dd>
         </dl>
         <a href="{{ url_for('system_mgmt.change_password') }}" class="btn btn-outline-primary btn-sm mt-2"><i class="bi bi-key"></i> Change Password</a>
+        {% if g.role == 'TenantAdmin' %}
+        <a href="{{ url_for('system_mgmt.lead_intake_config') }}" class="btn btn-outline-primary btn-sm mt-2"><i class="bi bi-envelope-paper"></i> Config</a>
+        {% endif %}
       </div>
     </div>
   </div>
