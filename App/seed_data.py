@@ -2224,6 +2224,180 @@ def seed_lookup_tables(db, tenant_id: int):
     db.commit()
 
 
+# --------------------------------------------------------------------------
+# Client Acquisition — pipeline templates
+# --------------------------------------------------------------------------
+# Seeded ONCE onto the reserved GSS_PLATFORM tenant (db.py's
+# _migration_client_acquisition_module, right after this module's tables are
+# created), then cloned into every tenant -- existing ones via that same
+# migration, new ones going forward via tenant_provisioning.py's
+# provision_tenant(). A tenant's clone is its own row from then on; editing
+# it never touches the platform master or any other tenant's copy.
+#
+# PLACEHOLDER CONTENT: GSS_Sales_Cycle_Module-New-1a.pdf (the source
+# document this module was built from) defines specific "Trades" and
+# "Agency" example templates with their own stage names/checklists/
+# cadences -- that file isn't available in this working session to
+# transcribe exactly, so a single generic template ships here for now so
+# the module is usable/testable end-to-end. Re-run with the PDF at hand to
+# replace GENERIC_B2B below with the real Trades/Agency templates (adding
+# entries here is additive/idempotent -- see seed_platform_pipeline_
+# templates below -- so this is safe to extend later without a new
+# migration).
+PIPELINE_TEMPLATES = [
+    {
+        "template_name": "General B2B",
+        "win_criteria_prompt": "Signed agreement and first invoice sent.",
+        "disqualify_after_days": 90,
+        "stages": [
+            {
+                "stage_number": 1, "stage_name": "Prospecting", "typical_window_days": 7,
+                "probability_percent": 10,
+                "checklist": [("Confirm decision-maker identified", True), ("Log initial research notes", False)],
+                "cadence": [(0, "Initial outreach call", "Call"), (2, "Follow-up email", "Email"), (5, "LinkedIn connection request", "LinkedIn")],
+            },
+            {
+                "stage_number": 2, "stage_name": "Qualifying", "typical_window_days": 10,
+                "probability_percent": 25,
+                "checklist": [("Needs/budget/timeline confirmed", True), ("Decision-maker vs. influencer mapped", True)],
+                "cadence": [(0, "Discovery call", "Call"), (3, "Send qualifying questions recap", "Email")],
+            },
+            {
+                "stage_number": 3, "stage_name": "Meeting / Discovery", "typical_window_days": 14,
+                "probability_percent": 40,
+                "checklist": [("Discovery meeting held", True), ("Pain points documented", True)],
+                "cadence": [(0, "Schedule discovery meeting", "Call"), (7, "Send meeting recap", "Email")],
+            },
+            {
+                "stage_number": 4, "stage_name": "Proposal", "typical_window_days": 14,
+                "probability_percent": 60,
+                "checklist": [("Proposal sent", True), ("Pricing confirmed internally", True)],
+                "cadence": [(0, "Send proposal", "Email"), (3, "Follow-up call on proposal", "Call")],
+            },
+            {
+                "stage_number": 5, "stage_name": "Negotiation", "typical_window_days": 10,
+                "probability_percent": 80,
+                "checklist": [("Objections addressed", True), ("Final terms agreed", True)],
+                "cadence": [(0, "Negotiation call", "Call"), (5, "Send revised terms", "Email")],
+            },
+            {
+                "stage_number": 6, "stage_name": "Closed Won", "typical_window_days": 3,
+                "probability_percent": 100,
+                "checklist": [("Agreement signed", True), ("Handoff notes prepared", True)],
+                "cadence": [],
+            },
+        ],
+    },
+]
+
+
+def seed_platform_pipeline_templates(db, platform_tenant_id: int):
+    """Seeds PIPELINE_TEMPLATES above onto the GSS_PLATFORM tenant. Additive
+    and idempotent per template_name — a template already present (matched
+    on pipeline_templates' own UNIQUE(tenant_id, template_name)) is left
+    alone entirely, children included, so re-running this after adding a
+    NEW template to the list above only inserts the new one."""
+    for tpl in PIPELINE_TEMPLATES:
+        existing = db.execute(
+            "SELECT pipeline_template_id FROM pipeline_templates WHERE tenant_id = ? AND template_name = ?",
+            (platform_tenant_id, tpl["template_name"]),
+        ).fetchone()
+        if existing:
+            continue
+        cur = db.execute(
+            """INSERT INTO pipeline_templates (tenant_id, template_name, win_criteria_prompt, disqualify_after_days, sort_order)
+               VALUES (?, ?, ?, ?, ?)""",
+            (platform_tenant_id, tpl["template_name"], tpl.get("win_criteria_prompt"),
+             tpl.get("disqualify_after_days"), tpl.get("sort_order", 0)),
+        )
+        pipeline_template_id = cur.lastrowid
+        for stage in tpl["stages"]:
+            db.execute(
+                """INSERT INTO pipeline_template_stages
+                   (tenant_id, pipeline_template_id, stage_number, stage_name, typical_window_days, probability_percent)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (platform_tenant_id, pipeline_template_id, stage["stage_number"], stage["stage_name"],
+                 stage.get("typical_window_days"), stage.get("probability_percent", 0)),
+            )
+            for i, (item_label, is_required) in enumerate(stage.get("checklist", [])):
+                db.execute(
+                    """INSERT INTO pipeline_template_checklist_items
+                       (tenant_id, pipeline_template_id, stage_number, item_label, is_required, sort_order)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (platform_tenant_id, pipeline_template_id, stage["stage_number"], item_label, 1 if is_required else 0, i),
+                )
+            for i, (day_offset, action_label, channel) in enumerate(stage.get("cadence", [])):
+                db.execute(
+                    """INSERT INTO pipeline_template_cadence_steps
+                       (tenant_id, pipeline_template_id, stage_number, day_offset, action_label, channel, sort_order)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (platform_tenant_id, pipeline_template_id, stage["stage_number"], day_offset, action_label, channel, i),
+                )
+    db.commit()
+
+
+def clone_pipeline_templates_to_tenant(db, source_tenant_id: int, dest_tenant_id: int):
+    """Copies every active pipeline template (with its stages, checklist
+    items, and cadence steps) from source_tenant_id -- normally the
+    GSS_PLATFORM tenant -- into dest_tenant_id's own rows. Additive and
+    idempotent per template_name, same as seed_platform_pipeline_templates
+    above: a template dest_tenant_id already has (by name) is left alone,
+    so calling this again after the platform gains a new template only
+    clones the new one in. The destination's copy is independent from the
+    moment it's created -- editing it never touches the source."""
+    if source_tenant_id == dest_tenant_id:
+        return
+    templates = db.execute(
+        "SELECT * FROM pipeline_templates WHERE tenant_id = ? AND is_active = 1",
+        (source_tenant_id,),
+    ).fetchall()
+    for tpl in templates:
+        existing = db.execute(
+            "SELECT pipeline_template_id FROM pipeline_templates WHERE tenant_id = ? AND template_name = ?",
+            (dest_tenant_id, tpl["template_name"]),
+        ).fetchone()
+        if existing:
+            continue
+        cur = db.execute(
+            """INSERT INTO pipeline_templates (tenant_id, template_name, win_criteria_prompt, disqualify_after_days, sort_order)
+               VALUES (?, ?, ?, ?, ?)""",
+            (dest_tenant_id, tpl["template_name"], tpl["win_criteria_prompt"], tpl["disqualify_after_days"], tpl["sort_order"]),
+        )
+        new_template_id = cur.lastrowid
+        for stage in db.execute(
+            "SELECT * FROM pipeline_template_stages WHERE pipeline_template_id = ? ORDER BY stage_number",
+            (tpl["pipeline_template_id"],),
+        ).fetchall():
+            db.execute(
+                """INSERT INTO pipeline_template_stages
+                   (tenant_id, pipeline_template_id, stage_number, stage_name, typical_window_days, probability_percent)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (dest_tenant_id, new_template_id, stage["stage_number"], stage["stage_name"],
+                 stage["typical_window_days"], stage["probability_percent"]),
+            )
+        for item in db.execute(
+            "SELECT * FROM pipeline_template_checklist_items WHERE pipeline_template_id = ? ORDER BY stage_number, sort_order",
+            (tpl["pipeline_template_id"],),
+        ).fetchall():
+            db.execute(
+                """INSERT INTO pipeline_template_checklist_items
+                   (tenant_id, pipeline_template_id, stage_number, item_label, is_required, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (dest_tenant_id, new_template_id, item["stage_number"], item["item_label"], item["is_required"], item["sort_order"]),
+            )
+        for step in db.execute(
+            "SELECT * FROM pipeline_template_cadence_steps WHERE pipeline_template_id = ? ORDER BY stage_number, sort_order",
+            (tpl["pipeline_template_id"],),
+        ).fetchall():
+            db.execute(
+                """INSERT INTO pipeline_template_cadence_steps
+                   (tenant_id, pipeline_template_id, stage_number, day_offset, action_label, channel, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (dest_tenant_id, new_template_id, step["stage_number"], step["day_offset"], step["action_label"], step["channel"], step["sort_order"]),
+            )
+    db.commit()
+
+
 def seed_business_card_sample_contact(db, tenant_id: int):
     """One-time sample contact ("Gallant Plumbing Services") with both a
     front and back Business Card image attached, so the Business Card

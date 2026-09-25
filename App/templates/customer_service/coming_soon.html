@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Customer Service{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Customer Service</h1>
+
+<div class="card shadow-sm border-0">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-headset" style="font-size: 3rem; opacity: 0.35;"></i>
+    <h2 class="h4 mt-3">Coming soon</h2>
+    <p class="text-muted mb-0" style="max-width: 520px; margin: 0 auto;">
+      Once a prospect becomes a client through <a href="{{ url_for('client_acquisition.dashboard') }}">Client
+      Acquisition</a>, this is where their ongoing relationship will live — complaints, support tickets, issues,
+      delivery tasks, and notifying the delivery team. Not built yet.
+    </p>
+  </div>
+</div>
+{% endblock %}

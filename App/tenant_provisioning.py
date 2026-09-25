@@ -67,7 +67,18 @@ def provision_tenant(db, tenant_name: str, username: str, display_name: str, pas
     )
     db.commit()
 
-    from seed_data import seed_lookup_tables
+    from seed_data import seed_lookup_tables, clone_pipeline_templates_to_tenant
     seed_lookup_tables(db, tenant_id)
+
+    # Client Acquisition pipeline templates: cloned from the reserved
+    # GSS_PLATFORM tenant's master copies (db.py's
+    # _migration_client_acquisition_module seeds those), same
+    # clone-at-provisioning pattern as every other per-tenant lookup table
+    # above -- a no-op if the platform tenant or its templates don't exist
+    # yet (e.g. a database provisioned before that migration ran once).
+    platform_row = db.execute("SELECT tenant_id FROM tenants WHERE tenant_code = 'GSS_PLATFORM'").fetchone()
+    if platform_row and platform_row["tenant_id"] != tenant_id:
+        clone_pipeline_templates_to_tenant(db, platform_row["tenant_id"], tenant_id)
+    db.commit()
 
     return tenant_id, seed_phrase_value

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Client Acquisition Reporting{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">Reporting</h1>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ won }}</div><div class="text-muted small">Won</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ lost }}</div><div class="text-muted small">Lost</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ win_rate ~ '%' if win_rate is not none else '—' }}</div><div class="text-muted small">Win Rate</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ avg_cycle_days if avg_cycle_days is not none else '—' }}</div><div class="text-muted small">Avg. Days to Win</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white"><strong>Loss Reasons</strong></div>
+      <ul class="list-group list-group-flush">
+        {% for r in loss_reasons %}
+        <li class="list-group-item d-flex justify-content-between"><span>{{ r.lost_reason or "Unspecified" }}</span><span>{{ r.c }}</span></li>
+        {% else %}
+        <li class="list-group-item text-muted">No losses recorded yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white"><strong>Win/Loss by Rep</strong></div>
+      <ul class="list-group list-group-flush">
+        {% for r in by_rep %}
+        <li class="list-group-item d-flex justify-content-between">
+          <span>{{ r.display_name or "Unassigned" }}</span>
+          <span>{{ r.won }} won / {{ r.lost }} lost</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">No data yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+<p class="text-muted small mt-3">Material effectiveness (which shared materials correlate with wins) isn't tracked
+  yet — interactions currently record shared material as free text.</p>
+{% endblock %}

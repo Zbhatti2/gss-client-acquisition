@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Templates{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Pipeline Templates</h1>
+  <a href="{{ url_for('client_acquisition.new_template') }}" class="btn btn-primary"><i class="bi bi-plus-lg"></i> New Template</a>
+</div>
+{% if g.role == 'SystemAdmin' %}
+<p class="text-muted">Editing GSS Platform's master templates — new tenants clone these at setup; existing tenants
+  keep their own copy and aren't affected by changes made here.</p>
+{% endif %}
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead><tr><th>Template</th><th>Stages</th><th>Active</th></tr></thead>
+      <tbody>
+        {% for t in templates %}
+        <tr onclick="window.location='{{ url_for('client_acquisition.edit_template', template_id=t.pipeline_template_id) }}'" style="cursor:pointer;">
+          <td><strong>{{ t.template_name }}</strong>{% if t.win_criteria_prompt %}<div class="small text-muted">{{ t.win_criteria_prompt }}</div>{% endif %}</td>
+          <td class="text-muted small">{{ t.stage_count }}</td>
+          <td>{% if t.is_active %}<span class="badge bg-success-subtle text-success">Active</span>{% else %}<span class="badge bg-secondary-subtle text-dark">Inactive</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center text-muted py-5">No pipeline templates yet — <a href="{{ url_for('client_acquisition.new_template') }}">create the first one</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

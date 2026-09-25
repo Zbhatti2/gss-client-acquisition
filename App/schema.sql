@@ -1687,3 +1687,352 @@ BEGIN
         WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
     );
 END;
+
+-- =============================================================================
+-- MODULE — CLIENT ACQUISITION (sales pipeline / CRM)
+-- =============================================================================
+-- An Opportunity tracks one prospective client's journey toward becoming a
+-- client, moving through a tenant's own Pipeline Template (a named sequence
+-- of stages, each with a typical time window, a checklist of required
+-- actions, and a pre-defined outreach cadence). Opportunities link to
+-- EXISTING organizations/contacts rows -- there is deliberately no separate
+-- "clients" table (see the GSS_Data_Model_Decisions_v1.md project doc's
+-- Client Acquisition addendum for the full set of decisions this module
+-- implements).
+--
+-- Pipeline Templates are seeded once onto the reserved GSS_PLATFORM tenant
+-- (tenant_code = 'GSS_PLATFORM', see this file's tenants.is_platform comment
+-- and db.py's _migration_create_platform_tenant) and cloned into every
+-- tenant at provisioning time (tenant_provisioning.py's provision_tenant()),
+-- the same as every other per-tenant lookup table -- once cloned, a tenant
+-- is free to edit its own copy without affecting the platform master or any
+-- other tenant's copy.
+--
+-- Controlled vocabularies below (channel, direction, outcome, lost_reason,
+-- nurture_reason, contact_role, task source) are FIXED via CHECK
+-- constraints -- the same pattern already used for contact_phones.
+-- phone_type above -- NOT tenant-editable Table Maintenance lookups, unlike
+-- e.g. Contact Categories/Organization Types. This keeps them comparable
+-- across every tenant for reporting, and was a deliberate choice rather
+-- than an oversight.
+--
+-- "Customer Service" (customer complaints/tickets/delivery) is intentionally
+-- a separate, not-yet-built module -- see blueprints/customer_service.py's
+-- placeholder page. Nothing here assumes it exists yet.
+
+CREATE TABLE pipeline_templates (
+    pipeline_template_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    template_name   TEXT NOT NULL,
+    win_criteria_prompt TEXT,               -- freeform: what "won" looks like for this template
+    disqualify_after_days INTEGER,          -- default staleness threshold; an Opportunity can override its own
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(tenant_id, template_name)
+);
+CREATE INDEX idx_pipeline_templates_tenant ON pipeline_templates(tenant_id);
+
+CREATE TABLE pipeline_template_stages (
+    stage_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+    stage_number    INTEGER NOT NULL,
+    stage_name      TEXT NOT NULL,
+    typical_window_days INTEGER,            -- expected days in this stage; drives the "aging" risk flag
+    probability_percent INTEGER NOT NULL DEFAULT 0 CHECK (probability_percent BETWEEN 0 AND 100),
+    UNIQUE(pipeline_template_id, stage_number)
+);
+CREATE INDEX idx_pipeline_template_stages_tenant ON pipeline_template_stages(tenant_id);
+CREATE INDEX idx_pipeline_template_stages_template ON pipeline_template_stages(pipeline_template_id);
+
+CREATE TABLE pipeline_template_checklist_items (
+    checklist_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+    stage_number    INTEGER NOT NULL,
+    item_label      TEXT NOT NULL,
+    is_required     INTEGER NOT NULL DEFAULT 1,   -- required items gate stage advancement; see opportunity_stage_checklist_progress
+    sort_order      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_pipeline_template_checklist_tenant ON pipeline_template_checklist_items(tenant_id);
+CREATE INDEX idx_pipeline_template_checklist_template ON pipeline_template_checklist_items(pipeline_template_id);
+
+CREATE TABLE pipeline_template_cadence_steps (
+    cadence_step_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+    stage_number    INTEGER NOT NULL,
+    day_offset      INTEGER NOT NULL DEFAULT 0,   -- days after stage entry this task auto-generates on
+    action_label    TEXT NOT NULL,
+    channel         TEXT CHECK (channel IN ('Call','Email','LinkedIn','Text','In-Person','Mail','Video','Note')),
+    sort_order      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_pipeline_template_cadence_tenant ON pipeline_template_cadence_steps(tenant_id);
+CREATE INDEX idx_pipeline_template_cadence_template ON pipeline_template_cadence_steps(pipeline_template_id);
+
+CREATE TABLE opportunities (
+    opportunity_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    organization_id INTEGER NOT NULL REFERENCES organizations(organization_id),
+    pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+    opportunity_name TEXT NOT NULL,
+    assigned_user_id INTEGER REFERENCES users(user_id),   -- owning rep; nullable (unassigned)
+    status          TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Nurture','Lost','Closed')),
+    current_stage_number INTEGER NOT NULL DEFAULT 1,
+    stage_entered_date TEXT NOT NULL DEFAULT (datetime('now')),
+    opportunity_value REAL,
+    probability_percent INTEGER NOT NULL DEFAULT 0 CHECK (probability_percent BETWEEN 0 AND 100),
+    lead_source     TEXT,                    -- hybrid structured/free-text on purpose -- deliberately no CHECK
+    lead_source_detail TEXT,
+    disqualify_after_days INTEGER,           -- overrides the template's own default when set
+    next_action     TEXT,
+    next_action_date TEXT,
+    nurture_reason  TEXT CHECK (nurture_reason IN ('Timing','Budget Cycle','Internal Change','Rebrand','Hiring Freeze','Other')),
+    nurture_revisit_date TEXT,
+    lost_reason     TEXT CHECK (lost_reason IN ('Price','Competitor','Timing','No Budget','No Authority','No Need','Unresponsive','Out of Scope')),
+    lost_date       TEXT,
+    closed_date     TEXT,
+    closed_won      INTEGER,                 -- 1 = won/became a client, 0 = closed without winning; NULL until closed
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    -- No is_deleted -- Nurture/Lost already give this module its "never
+    -- delete, only move to a side-state" behavior.
+);
+CREATE INDEX idx_opportunities_tenant ON opportunities(tenant_id);
+CREATE INDEX idx_opportunities_organization ON opportunities(organization_id);
+CREATE INDEX idx_opportunities_template ON opportunities(pipeline_template_id);
+CREATE INDEX idx_opportunities_assigned_user ON opportunities(assigned_user_id);
+CREATE INDEX idx_opportunities_status ON opportunities(status);
+
+CREATE TABLE opportunity_contacts (
+    opportunity_contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+    contact_id      INTEGER NOT NULL REFERENCES contacts(contact_id),
+    contact_role    TEXT CHECK (contact_role IN ('Economic Buyer','Champion','Influencer','Blocker','Decision Maker','End User')),
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(opportunity_id, contact_id)
+);
+CREATE INDEX idx_opportunity_contacts_tenant ON opportunity_contacts(tenant_id);
+CREATE INDEX idx_opportunity_contacts_opportunity ON opportunity_contacts(opportunity_id);
+CREATE INDEX idx_opportunity_contacts_contact ON opportunity_contacts(contact_id);
+
+-- Snapshot, not a live join against pipeline_template_checklist_items --
+-- copied in at stage-entry time so a later edit to the template doesn't
+-- retroactively alter an Opportunity's own history (same reasoning as the
+-- CSV-import staging tables' snapshot-not-live-join pattern).
+CREATE TABLE opportunity_stage_checklist_progress (
+    progress_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+    stage_number    INTEGER NOT NULL,
+    item_label      TEXT NOT NULL,
+    is_required     INTEGER NOT NULL DEFAULT 1,
+    is_complete     INTEGER NOT NULL DEFAULT 0,
+    completed_at    TEXT,
+    completed_by_user_id INTEGER REFERENCES users(user_id),
+    sort_order      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_opp_checklist_progress_tenant ON opportunity_stage_checklist_progress(tenant_id);
+CREATE INDEX idx_opp_checklist_progress_opportunity ON opportunity_stage_checklist_progress(opportunity_id);
+
+CREATE TABLE opportunity_stage_history (
+    stage_history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+    from_status     TEXT,
+    from_stage_number INTEGER,
+    to_status       TEXT NOT NULL,
+    to_stage_number INTEGER,
+    from_probability_percent INTEGER,
+    to_probability_percent INTEGER,
+    is_manual_override INTEGER NOT NULL DEFAULT 0,   -- advanced/reverted without the checklist being fully complete
+    reason          TEXT,                            -- required by the app when is_manual_override=1 or moving to Lost
+    changed_by_user_id INTEGER REFERENCES users(user_id),
+    changed_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_opp_stage_history_tenant ON opportunity_stage_history(tenant_id);
+CREATE INDEX idx_opp_stage_history_opportunity ON opportunity_stage_history(opportunity_id);
+
+CREATE TABLE interactions (
+    interaction_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+    contact_id      INTEGER REFERENCES contacts(contact_id),   -- nullable: e.g. a general voicemail/note not tied to one person
+    interaction_date TEXT NOT NULL DEFAULT (datetime('now')),
+    channel         TEXT NOT NULL CHECK (channel IN ('Call','Email','LinkedIn','Text','In-Person','Mail','Video','Note')),
+    direction       TEXT NOT NULL CHECK (direction IN ('Outbound','Inbound','Internal')),
+    summary         TEXT,
+    material_shared TEXT,
+    outcome         TEXT CHECK (outcome IN (
+        'Connected','Left Voicemail','No Answer','Meeting Scheduled','Meeting Held',
+        'Proposal Sent','Follow-Up Needed','Referred Internally','Not Interested',
+        'Requested Callback','Gatekeeper','Wrong Contact','Rescheduled','Other'
+    )),
+    created_by_user_id INTEGER REFERENCES users(user_id),
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_interactions_tenant ON interactions(tenant_id);
+CREATE INDEX idx_interactions_opportunity ON interactions(opportunity_id);
+CREATE INDEX idx_interactions_contact ON interactions(contact_id);
+
+CREATE TABLE tasks (
+    task_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+    opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+    assigned_user_id INTEGER REFERENCES users(user_id),
+    title           TEXT NOT NULL,
+    channel         TEXT CHECK (channel IN ('Call','Email','LinkedIn','Text','In-Person','Mail','Video','Note')),
+    due_date        TEXT,
+    source          TEXT NOT NULL DEFAULT 'Manual' CHECK (source IN ('Cadence','Manual','Nurture Revisit')),
+    is_complete     INTEGER NOT NULL DEFAULT 0,
+    completed_at    TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_tasks_tenant ON tasks(tenant_id);
+CREATE INDEX idx_tasks_opportunity ON tasks(opportunity_id);
+CREATE INDEX idx_tasks_assigned_user ON tasks(assigned_user_id);
+CREATE INDEX idx_tasks_due_date ON tasks(due_date);
+
+-- Cross-tenant guard triggers for this module's own "picker" foreign keys
+-- (fields populated from a <select> in a form, where a tampered request
+-- could otherwise reference another tenant's row) -- same rationale as the
+-- TENANT ISOLATION triggers above, kept as their own fresh set (rather than
+-- appended to TENANT_FK_CHECKS in db.py) because that list's migration
+-- already shipped and past migrations are never edited once applied; see
+-- db.py's _migration_client_acquisition_module for this module's own
+-- migration-path equivalent of these same triggers.
+
+CREATE TRIGGER trg_tenant_fk_opportunities_organization_id_ins
+BEFORE INSERT ON opportunities
+WHEN NEW.organization_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunities.organization_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organizations
+        WHERE organization_id = NEW.organization_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunities_organization_id_upd
+BEFORE UPDATE ON opportunities
+WHEN NEW.organization_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunities.organization_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM organizations
+        WHERE organization_id = NEW.organization_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunities_pipeline_template_id_ins
+BEFORE INSERT ON opportunities
+WHEN NEW.pipeline_template_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunities.pipeline_template_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pipeline_templates
+        WHERE pipeline_template_id = NEW.pipeline_template_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunities_pipeline_template_id_upd
+BEFORE UPDATE ON opportunities
+WHEN NEW.pipeline_template_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunities.pipeline_template_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM pipeline_templates
+        WHERE pipeline_template_id = NEW.pipeline_template_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunities_assigned_user_id_ins
+BEFORE INSERT ON opportunities
+WHEN NEW.assigned_user_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunities.assigned_user_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM users
+        WHERE user_id = NEW.assigned_user_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunities_assigned_user_id_upd
+BEFORE UPDATE ON opportunities
+WHEN NEW.assigned_user_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunities.assigned_user_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM users
+        WHERE user_id = NEW.assigned_user_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunity_contacts_contact_id_ins
+BEFORE INSERT ON opportunity_contacts
+WHEN NEW.contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunity_contacts.contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_opportunity_contacts_contact_id_upd
+BEFORE UPDATE ON opportunity_contacts
+WHEN NEW.contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'opportunity_contacts.contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_interactions_contact_id_ins
+BEFORE INSERT ON interactions
+WHEN NEW.contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'interactions.contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_interactions_contact_id_upd
+BEFORE UPDATE ON interactions
+WHEN NEW.contact_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'interactions.contact_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM contacts
+        WHERE contact_id = NEW.contact_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_tasks_assigned_user_id_ins
+BEFORE INSERT ON tasks
+WHEN NEW.assigned_user_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'tasks.assigned_user_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM users
+        WHERE user_id = NEW.assigned_user_id AND tenant_id = NEW.tenant_id
+    );
+END;
+
+CREATE TRIGGER trg_tenant_fk_tasks_assigned_user_id_upd
+BEFORE UPDATE ON tasks
+WHEN NEW.assigned_user_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'tasks.assigned_user_id: cross-tenant reference not allowed')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM users
+        WHERE user_id = NEW.assigned_user_id AND tenant_id = NEW.tenant_id
+    );
+END;

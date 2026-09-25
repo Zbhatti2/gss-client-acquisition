@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Nurture — {{ opp.opportunity_name }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">Move to Nurture: {{ opp.opportunity_name }}</h1>
+<form method="post" class="card shadow-sm border-0" style="max-width: 480px;">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="text-muted">Nurture pauses the active pipeline without losing the opportunity — it can be reactivated
+      at its current stage any time, or revisited automatically via the task below.</p>
+    <div class="mb-3">
+      <label class="form-label">Reason <span class="text-danger">*</span></label>
+      <select class="form-select" name="nurture_reason" required>
+        <option value="">— Choose —</option>
+        {% for r in nurture_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Revisit Date</label>
+      <input type="date" class="form-control" name="nurture_revisit_date">
+      <div class="form-text">Optional — creates a reminder task on this date if set.</div>
+    </div>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('client_acquisition.view_opportunity', opp_id=opp.opportunity_id) }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-warning" type="submit">Move to Nurture</button>
+  </div>
+</form>
+{% endblock %}

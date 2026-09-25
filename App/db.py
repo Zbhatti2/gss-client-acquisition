@@ -754,6 +754,251 @@ def _migration_agents_billing(db):
     seed_granite_signal_billing_subscription(db)
 
 
+# This module's own cross-tenant "picker" FK guards (see schema.sql's
+# MODULE — CLIENT ACQUISITION section for the fresh-install versions of
+# these same triggers, and its comment there on why this is a separate list
+# rather than an addition to TENANT_FK_CHECKS above). Not consumed by
+# _migration_tenant_fk_triggers -- _migration_client_acquisition_module
+# below creates these itself, alongside the tables they guard.
+CLIENT_ACQUISITION_TENANT_FK_CHECKS = [
+    ("opportunities", "organization_id", "organizations", "organization_id"),
+    ("opportunities", "pipeline_template_id", "pipeline_templates", "pipeline_template_id"),
+    ("opportunities", "assigned_user_id", "users", "user_id"),
+    ("opportunity_contacts", "contact_id", "contacts", "contact_id"),
+    ("interactions", "contact_id", "contacts", "contact_id"),
+    ("tasks", "assigned_user_id", "users", "user_id"),
+]
+
+
+def _migration_client_acquisition_module(db):
+    """Adds the Client Acquisition (sales pipeline / CRM) module's 10 tables
+    -- pipeline_templates, pipeline_template_stages, pipeline_template_
+    checklist_items, pipeline_template_cadence_steps, opportunities,
+    opportunity_contacts, opportunity_stage_checklist_progress, opportunity_
+    stage_history, interactions, tasks -- to an already-existing database.
+    See schema.sql's "MODULE — CLIENT ACQUISITION" section for the
+    fresh-install versions of this exact same DDL, which this must be kept
+    in sync with by hand (same convention as every other module here)."""
+    for table, ddl in [
+        ("pipeline_templates", """
+            CREATE TABLE pipeline_templates (
+                pipeline_template_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                template_name   TEXT NOT NULL,
+                win_criteria_prompt TEXT,
+                disqualify_after_days INTEGER,
+                is_active       INTEGER NOT NULL DEFAULT 1,
+                sort_order      INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(tenant_id, template_name)
+            )"""),
+        ("pipeline_template_stages", """
+            CREATE TABLE pipeline_template_stages (
+                stage_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+                stage_number    INTEGER NOT NULL,
+                stage_name      TEXT NOT NULL,
+                typical_window_days INTEGER,
+                probability_percent INTEGER NOT NULL DEFAULT 0 CHECK (probability_percent BETWEEN 0 AND 100),
+                UNIQUE(pipeline_template_id, stage_number)
+            )"""),
+        ("pipeline_template_checklist_items", """
+            CREATE TABLE pipeline_template_checklist_items (
+                checklist_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+                stage_number    INTEGER NOT NULL,
+                item_label      TEXT NOT NULL,
+                is_required     INTEGER NOT NULL DEFAULT 1,
+                sort_order      INTEGER NOT NULL DEFAULT 0
+            )"""),
+        ("pipeline_template_cadence_steps", """
+            CREATE TABLE pipeline_template_cadence_steps (
+                cadence_step_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+                stage_number    INTEGER NOT NULL,
+                day_offset      INTEGER NOT NULL DEFAULT 0,
+                action_label    TEXT NOT NULL,
+                channel         TEXT CHECK (channel IN ('Call','Email','LinkedIn','Text','In-Person','Mail','Video','Note')),
+                sort_order      INTEGER NOT NULL DEFAULT 0
+            )"""),
+        ("opportunities", """
+            CREATE TABLE opportunities (
+                opportunity_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                organization_id INTEGER NOT NULL REFERENCES organizations(organization_id),
+                pipeline_template_id INTEGER NOT NULL REFERENCES pipeline_templates(pipeline_template_id),
+                opportunity_name TEXT NOT NULL,
+                assigned_user_id INTEGER REFERENCES users(user_id),
+                status          TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Nurture','Lost','Closed')),
+                current_stage_number INTEGER NOT NULL DEFAULT 1,
+                stage_entered_date TEXT NOT NULL DEFAULT (datetime('now')),
+                opportunity_value REAL,
+                probability_percent INTEGER NOT NULL DEFAULT 0 CHECK (probability_percent BETWEEN 0 AND 100),
+                lead_source     TEXT,
+                lead_source_detail TEXT,
+                disqualify_after_days INTEGER,
+                next_action     TEXT,
+                next_action_date TEXT,
+                nurture_reason  TEXT CHECK (nurture_reason IN ('Timing','Budget Cycle','Internal Change','Rebrand','Hiring Freeze','Other')),
+                nurture_revisit_date TEXT,
+                lost_reason     TEXT CHECK (lost_reason IN ('Price','Competitor','Timing','No Budget','No Authority','No Need','Unresponsive','Out of Scope')),
+                lost_date       TEXT,
+                closed_date     TEXT,
+                closed_won      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""),
+        ("opportunity_contacts", """
+            CREATE TABLE opportunity_contacts (
+                opportunity_contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+                contact_id      INTEGER NOT NULL REFERENCES contacts(contact_id),
+                contact_role    TEXT CHECK (contact_role IN ('Economic Buyer','Champion','Influencer','Blocker','Decision Maker','End User')),
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(opportunity_id, contact_id)
+            )"""),
+        ("opportunity_stage_checklist_progress", """
+            CREATE TABLE opportunity_stage_checklist_progress (
+                progress_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+                stage_number    INTEGER NOT NULL,
+                item_label      TEXT NOT NULL,
+                is_required     INTEGER NOT NULL DEFAULT 1,
+                is_complete     INTEGER NOT NULL DEFAULT 0,
+                completed_at    TEXT,
+                completed_by_user_id INTEGER REFERENCES users(user_id),
+                sort_order      INTEGER NOT NULL DEFAULT 0
+            )"""),
+        ("opportunity_stage_history", """
+            CREATE TABLE opportunity_stage_history (
+                stage_history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+                from_status     TEXT,
+                from_stage_number INTEGER,
+                to_status       TEXT NOT NULL,
+                to_stage_number INTEGER,
+                from_probability_percent INTEGER,
+                to_probability_percent INTEGER,
+                is_manual_override INTEGER NOT NULL DEFAULT 0,
+                reason          TEXT,
+                changed_by_user_id INTEGER REFERENCES users(user_id),
+                changed_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""),
+        ("interactions", """
+            CREATE TABLE interactions (
+                interaction_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+                contact_id      INTEGER REFERENCES contacts(contact_id),
+                interaction_date TEXT NOT NULL DEFAULT (datetime('now')),
+                channel         TEXT NOT NULL CHECK (channel IN ('Call','Email','LinkedIn','Text','In-Person','Mail','Video','Note')),
+                direction       TEXT NOT NULL CHECK (direction IN ('Outbound','Inbound','Internal')),
+                summary         TEXT,
+                material_shared TEXT,
+                outcome         TEXT CHECK (outcome IN (
+                    'Connected','Left Voicemail','No Answer','Meeting Scheduled','Meeting Held',
+                    'Proposal Sent','Follow-Up Needed','Referred Internally','Not Interested',
+                    'Requested Callback','Gatekeeper','Wrong Contact','Rescheduled','Other'
+                )),
+                created_by_user_id INTEGER REFERENCES users(user_id),
+                created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""),
+        ("tasks", """
+            CREATE TABLE tasks (
+                task_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(tenant_id),
+                opportunity_id  INTEGER NOT NULL REFERENCES opportunities(opportunity_id),
+                assigned_user_id INTEGER REFERENCES users(user_id),
+                title           TEXT NOT NULL,
+                channel         TEXT CHECK (channel IN ('Call','Email','LinkedIn','Text','In-Person','Mail','Video','Note')),
+                due_date        TEXT,
+                source          TEXT NOT NULL DEFAULT 'Manual' CHECK (source IN ('Cadence','Manual','Nurture Revisit')),
+                is_complete     INTEGER NOT NULL DEFAULT 0,
+                completed_at    TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            )"""),
+    ]:
+        if not _table_exists(db, table):
+            db.execute(ddl)
+    db.commit()
+
+    for name, idx_ddl in [
+        ("idx_pipeline_templates_tenant", "CREATE INDEX idx_pipeline_templates_tenant ON pipeline_templates(tenant_id)"),
+        ("idx_pipeline_template_stages_tenant", "CREATE INDEX idx_pipeline_template_stages_tenant ON pipeline_template_stages(tenant_id)"),
+        ("idx_pipeline_template_stages_template", "CREATE INDEX idx_pipeline_template_stages_template ON pipeline_template_stages(pipeline_template_id)"),
+        ("idx_pipeline_template_checklist_tenant", "CREATE INDEX idx_pipeline_template_checklist_tenant ON pipeline_template_checklist_items(tenant_id)"),
+        ("idx_pipeline_template_checklist_template", "CREATE INDEX idx_pipeline_template_checklist_template ON pipeline_template_checklist_items(pipeline_template_id)"),
+        ("idx_pipeline_template_cadence_tenant", "CREATE INDEX idx_pipeline_template_cadence_tenant ON pipeline_template_cadence_steps(tenant_id)"),
+        ("idx_pipeline_template_cadence_template", "CREATE INDEX idx_pipeline_template_cadence_template ON pipeline_template_cadence_steps(pipeline_template_id)"),
+        ("idx_opportunities_tenant", "CREATE INDEX idx_opportunities_tenant ON opportunities(tenant_id)"),
+        ("idx_opportunities_organization", "CREATE INDEX idx_opportunities_organization ON opportunities(organization_id)"),
+        ("idx_opportunities_template", "CREATE INDEX idx_opportunities_template ON opportunities(pipeline_template_id)"),
+        ("idx_opportunities_assigned_user", "CREATE INDEX idx_opportunities_assigned_user ON opportunities(assigned_user_id)"),
+        ("idx_opportunities_status", "CREATE INDEX idx_opportunities_status ON opportunities(status)"),
+        ("idx_opportunity_contacts_tenant", "CREATE INDEX idx_opportunity_contacts_tenant ON opportunity_contacts(tenant_id)"),
+        ("idx_opportunity_contacts_opportunity", "CREATE INDEX idx_opportunity_contacts_opportunity ON opportunity_contacts(opportunity_id)"),
+        ("idx_opportunity_contacts_contact", "CREATE INDEX idx_opportunity_contacts_contact ON opportunity_contacts(contact_id)"),
+        ("idx_opp_checklist_progress_tenant", "CREATE INDEX idx_opp_checklist_progress_tenant ON opportunity_stage_checklist_progress(tenant_id)"),
+        ("idx_opp_checklist_progress_opportunity", "CREATE INDEX idx_opp_checklist_progress_opportunity ON opportunity_stage_checklist_progress(opportunity_id)"),
+        ("idx_opp_stage_history_tenant", "CREATE INDEX idx_opp_stage_history_tenant ON opportunity_stage_history(tenant_id)"),
+        ("idx_opp_stage_history_opportunity", "CREATE INDEX idx_opp_stage_history_opportunity ON opportunity_stage_history(opportunity_id)"),
+        ("idx_interactions_tenant", "CREATE INDEX idx_interactions_tenant ON interactions(tenant_id)"),
+        ("idx_interactions_opportunity", "CREATE INDEX idx_interactions_opportunity ON interactions(opportunity_id)"),
+        ("idx_interactions_contact", "CREATE INDEX idx_interactions_contact ON interactions(contact_id)"),
+        ("idx_tasks_tenant", "CREATE INDEX idx_tasks_tenant ON tasks(tenant_id)"),
+        ("idx_tasks_opportunity", "CREATE INDEX idx_tasks_opportunity ON tasks(opportunity_id)"),
+        ("idx_tasks_assigned_user", "CREATE INDEX idx_tasks_assigned_user ON tasks(assigned_user_id)"),
+        ("idx_tasks_due_date", "CREATE INDEX idx_tasks_due_date ON tasks(due_date)"),
+    ]:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?", (name,)).fetchone():
+            db.execute(idx_ddl)
+    db.commit()
+
+    for master_table, fk_col, lookup_table, lookup_pk in CLIENT_ACQUISITION_TENANT_FK_CHECKS:
+        msg = f"{master_table}.{fk_col}: cross-tenant reference not allowed"
+        db.execute(f"""CREATE TRIGGER IF NOT EXISTS trg_tenant_fk_{master_table}_{fk_col}_ins
+            BEFORE INSERT ON {master_table}
+            WHEN NEW.{fk_col} IS NOT NULL
+            BEGIN
+                SELECT RAISE(ABORT, '{msg}')
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM {lookup_table}
+                    WHERE {lookup_pk} = NEW.{fk_col} AND tenant_id = NEW.tenant_id
+                );
+            END""")
+        db.execute(f"""CREATE TRIGGER IF NOT EXISTS trg_tenant_fk_{master_table}_{fk_col}_upd
+            BEFORE UPDATE ON {master_table}
+            WHEN NEW.{fk_col} IS NOT NULL
+            BEGIN
+                SELECT RAISE(ABORT, '{msg}')
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM {lookup_table}
+                    WHERE {lookup_pk} = NEW.{fk_col} AND tenant_id = NEW.tenant_id
+                );
+            END""")
+    db.commit()
+
+    # Seed pipeline templates onto the GSS_PLATFORM tenant and clone them
+    # into every tenant that already exists (new tenants get this via
+    # tenant_provisioning.py's provision_tenant() going forward). Safe to
+    # call on a database with no platform templates yet -- both functions
+    # are no-ops until seed_data.py actually defines PIPELINE_TEMPLATES.
+    from seed_data import seed_platform_pipeline_templates, clone_pipeline_templates_to_tenant
+    platform_row = db.execute("SELECT tenant_id FROM tenants WHERE tenant_code = 'GSS_PLATFORM'").fetchone()
+    if platform_row:
+        seed_platform_pipeline_templates(db, platform_row["tenant_id"])
+        for row in db.execute("SELECT tenant_id FROM tenants WHERE is_platform = 0").fetchall():
+            clone_pipeline_templates_to_tenant(db, platform_row["tenant_id"], row["tenant_id"])
+    db.commit()
+
+
 # Append-only. Each entry is (unique_name, function(db)). Never edit or
 # remove a past entry once shipped — a database that already applied it
 # only cares that the name is still recorded in schema_migrations; add a
@@ -778,6 +1023,7 @@ MIGRATIONS = [
     ("2026_09_create_platform_tenant", _migration_create_platform_tenant),
     ("2026_09_backfill_tenant_account_numbers", _migration_backfill_tenant_account_numbers),
     ("2026_09_agents_billing", _migration_agents_billing),
+    ("2026_09_client_acquisition_module", _migration_client_acquisition_module),
 ]
 
 

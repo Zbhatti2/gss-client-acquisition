@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Mark Lost — {{ opp.opportunity_name }}{% endblock %}
+{% block content %}
+<h1 class="h4 mb-4">Mark Lost: {{ opp.opportunity_name }}</h1>
+<form method="post" class="card shadow-sm border-0" style="max-width: 480px;">
+  <div class="card-body">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p class="text-muted">This opportunity stays on record — nothing is deleted — and can be reactivated later if
+      circumstances change.</p>
+    <div class="mb-3">
+      <label class="form-label">Reason <span class="text-danger">*</span></label>
+      <select class="form-select" name="lost_reason" required>
+        <option value="">— Choose —</option>
+        {% for r in lost_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+    <a href="{{ url_for('client_acquisition.view_opportunity', opp_id=opp.opportunity_id) }}" class="btn btn-outline-secondary">Cancel</a>
+    <button class="btn btn-danger" type="submit">Mark as Lost</button>
+  </div>
+</form>
+{% endblock %}

@@ -43,6 +43,10 @@ MODULES = [
      "roles": ["TenantAdmin", "User"]},
     {"key": "contacts", "label": "Contacts", "icon": "people", "endpoint": "contacts.list_contacts",
      "roles": ["TenantAdmin", "User"]},
+    {"key": "client_acquisition", "label": "Client Acquisition", "icon": "graph-up-arrow",
+     "endpoint": "client_acquisition.dashboard", "roles": ["TenantAdmin", "User"]},
+    {"key": "customer_service", "label": "Customer Service", "icon": "headset",
+     "endpoint": "customer_service.coming_soon", "roles": ["TenantAdmin", "User"]},
     {"key": "documents", "label": "Documents & Knowledge Base", "icon": "folder2-open", "endpoint": "documents.index",
      "roles": ["TenantAdmin", "User"]},
     {"key": "utilities", "label": "Utilities", "icon": "gear-wide-connected", "roles": ["TenantAdmin", "User"], "children": [
@@ -62,6 +66,16 @@ MODULES = [
      "roles": ["SystemAdmin"]},
     {"key": "billing_admin", "label": "Agent Billing", "icon": "credit-card", "endpoint": "billing.admin_catalog",
      "roles": ["SystemAdmin"]},
+    # A TenantAdmin manages their own tenant's (cloned) templates from a
+    # link on the Client Acquisition dashboard itself, not a separate nav
+    # entry (that page's own blueprint is already in the nav above, gated
+    # to TenantAdmin/User -- a second top-level entry pointing at the same
+    # blueprint would fight it for the "active" highlight). SystemAdmin
+    # never sees that module at all (tenant-scoped only), so it gets this
+    # one dedicated entry to reach the GSS_PLATFORM tenant's master copies
+    # -- see blueprints/client_acquisition.py's pipeline_admin_required.
+    {"key": "pipeline_templates_admin", "label": "Master Pipeline Templates", "icon": "diagram-2",
+     "endpoint": "client_acquisition.list_templates", "roles": ["SystemAdmin"]},
 ]
 
 
@@ -108,11 +122,15 @@ def create_app():
     from blueprints.billing import billing_bp
     from blueprints.users import users_bp
     from blueprints.tenants_admin import tenants_admin_bp
+    from blueprints.client_acquisition import client_acquisition_bp
+    from blueprints.customer_service import customer_service_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(organizations_bp, url_prefix="/organizations")
     app.register_blueprint(contacts_bp, url_prefix="/contacts")
+    app.register_blueprint(client_acquisition_bp, url_prefix="/client-acquisition")
+    app.register_blueprint(customer_service_bp, url_prefix="/customer-service")
     app.register_blueprint(documents_bp, url_prefix="/documents")
     app.register_blueprint(data_exchange_bp, url_prefix="/data-exchange")
     app.register_blueprint(table_maintenance_bp, url_prefix="/table-maintenance")

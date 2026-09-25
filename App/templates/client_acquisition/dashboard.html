@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Client Acquisition{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Client Acquisition</h1>
+  <div class="d-flex gap-2">
+    {% if g.role == 'TenantAdmin' %}
+    <a href="{{ url_for('client_acquisition.list_templates') }}" class="btn btn-outline-secondary"><i class="bi bi-diagram-2"></i> Pipeline Templates</a>
+    {% endif %}
+    <a href="{{ url_for('client_acquisition.reporting') }}" class="btn btn-outline-secondary"><i class="bi bi-bar-chart"></i> Reporting</a>
+    <a href="{{ url_for('client_acquisition.list_opportunities') }}" class="btn btn-outline-secondary"><i class="bi bi-list-ul"></i> All Opportunities</a>
+    <a href="{{ url_for('client_acquisition.new_opportunity') }}" class="btn btn-primary"><i class="bi bi-plus-lg"></i> New Opportunity</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ active_count }}</div>
+      <div class="text-muted small">Active Opportunities</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ win_rate ~ '%' if win_rate is not none else '—' }}</div>
+      <div class="text-muted small">Win Rate</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ at_risk | length }}</div>
+      <div class="text-muted small">At Risk</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm border-0"><div class="card-body text-center">
+      <div class="stat-number">{{ this_week_tasks | length }}</div>
+      <div class="text-muted small">Due This Week</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong>Pipeline Funnel</strong>
+        <form method="get" class="d-flex">
+          <select class="form-select form-select-sm" name="template_id" onchange="this.form.submit()">
+            <option value="">All templates</option>
+            {% for t in templates %}
+            <option value="{{ t.pipeline_template_id }}" {{ "selected" if template_id == t.pipeline_template_id|string else "" }}>{{ t.template_name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      <div class="card-body">
+        {% for f in funnel %}
+        <div class="mb-3">
+          <div class="fw-semibold small text-muted mb-1">{{ f.template.template_name }}</div>
+          <div class="d-flex gap-2 flex-wrap">
+            {% for sc in f.stages %}
+            <div class="text-center px-3 py-2 border rounded" style="min-width: 90px;">
+              <div class="fs-5 fw-semibold">{{ sc.count }}</div>
+              <div class="small text-muted">{{ sc.stage.stage_name }}</div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No pipeline templates yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white"><strong>Due This Week</strong></div>
+      <div class="list-group list-group-flush">
+        {% for t in this_week_tasks %}
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <a href="{{ url_for('client_acquisition.view_opportunity', opp_id=t.opportunity_id) }}">{{ t.opportunity_name }}</a>
+            <div class="small text-muted">{{ t.title }}{% if t.channel %} · {{ t.channel }}{% endif %} · due {{ t.due_date | format_date }}</div>
+          </div>
+          <form method="post" action="{{ url_for('client_acquisition.complete_task', task_id=t.task_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-success" type="submit"><i class="bi bi-check-lg"></i></button>
+          </form>
+        </div>
+        {% else %}
+        <div class="list-group-item text-muted">Nothing due this week.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-white"><strong>At Risk</strong></div>
+      <div class="list-group list-group-flush">
+        {% for a in at_risk %}
+        <a href="{{ url_for('client_acquisition.view_opportunity', opp_id=a.opp.opportunity_id) }}" class="list-group-item list-group-item-action">
+          <div class="d-flex justify-content-between">
+            <span>{{ a.opp.opportunity_name }}</span>
+          </div>
+          <div class="small text-muted mb-1">{{ a.opp.organization_name }}</div>
+          {% for flag in a.flags %}
+          <span class="badge bg-danger-subtle text-danger me-1">{{ flag }}</span>
+          {% endfor %}
+        </a>
+        {% else %}
+        <div class="list-group-item text-muted">Nothing at risk right now.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

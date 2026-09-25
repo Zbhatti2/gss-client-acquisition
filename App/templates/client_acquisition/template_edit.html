@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}{{ tpl.template_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">{{ tpl.template_name }}</h1>
+  <a href="{{ url_for('client_acquisition.list_templates') }}" class="btn btn-outline-secondary btn-sm">Back to Templates</a>
+</div>
+
+<div class="card shadow-sm border-0 mb-4">
+  <div class="card-header bg-white"><strong>Template Details</strong></div>
+  <div class="card-body">
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-3">
+        <label class="form-label">Template Name <span class="text-danger">*</span></label>
+        <input class="form-control" name="template_name" value="{{ tpl.template_name }}" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Win Criteria</label>
+        <textarea class="form-control" name="win_criteria_prompt" rows="2">{{ tpl.win_criteria_prompt or '' }}</textarea>
+      </div>
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <label class="form-label">Disqualify After (days)</label>
+          <input type="number" min="1" class="form-control" name="disqualify_after_days" value="{{ tpl.disqualify_after_days or '' }}">
+        </div>
+        <div class="col-6 d-flex align-items-end">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="is_active" id="is_active" {{ "checked" if tpl.is_active else "" }}>
+            <label class="form-check-label" for="is_active">Active (offered on new opportunities)</label>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">Save Details</button>
+      {% if not in_use %}
+      <button class="btn btn-outline-danger btn-sm" type="submit" formaction="{{ url_for('client_acquisition.delete_template', template_id=tpl.pipeline_template_id) }}"
+              onclick="return confirm('Delete this template and all its stages/checklist/cadence?');">Delete Template</button>
+      {% else %}
+      <span class="text-muted small ms-2">Used by {{ in_use }} opportunity(ies) — can't be deleted, deactivate instead.</span>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<h2 class="h5 mb-3">Stages</h2>
+{% for stage in stages %}
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <strong>Stage {{ stage.stage_number }}: {{ stage.stage_name }}</strong>
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-muted small">{{ stage.typical_window_days or "—" }} day window · {{ stage.probability_percent }}% probability</span>
+      <form method="post" action="{{ url_for('client_acquisition.delete_stage', template_id=tpl.pipeline_template_id, stage_number=stage.stage_number) }}"
+            onclick="return confirm('Delete this stage and its checklist/cadence?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i></button>
+      </form>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="fw-semibold small text-muted mb-2">Checklist</div>
+        <ul class="list-group list-group-flush mb-2">
+          {% for item in checklist_by_stage.get(stage.stage_number, []) %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span>{{ item.item_label }}{% if item.is_required %} <span class="text-danger">*</span>{% endif %}</span>
+            <form method="post" action="{{ url_for('client_acquisition.delete_checklist_item', template_id=tpl.pipeline_template_id, checklist_item_id=item.checklist_item_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-x"></i></button>
+            </form>
+          </li>
+          {% else %}
+          <li class="list-group-item px-0 text-muted small">No checklist items.</li>
+          {% endfor %}
+        </ul>
+        <form method="post" action="{{ url_for('client_acquisition.new_checklist_item', template_id=tpl.pipeline_template_id, stage_number=stage.stage_number) }}" class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input class="form-control form-control-sm" name="item_label" placeholder="New checklist item" required>
+          <div class="form-check form-check-inline text-nowrap">
+            <input class="form-check-input" type="checkbox" name="is_required" checked>
+            <label class="form-check-label small">Req'd</label>
+          </div>
+          <button class="btn btn-sm btn-outline-primary text-nowrap" type="submit">Add</button>
+        </form>
+      </div>
+      <div class="col-md-6">
+        <div class="fw-semibold small text-muted mb-2">Outreach Cadence</div>
+        <ul class="list-group list-group-flush mb-2">
+          {% for step in cadence_by_stage.get(stage.stage_number, []) %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span>Day {{ step.day_offset }}: {{ step.action_label }}{% if step.channel %} ({{ step.channel }}){% endif %}</span>
+            <form method="post" action="{{ url_for('client_acquisition.delete_cadence_step', template_id=tpl.pipeline_template_id, cadence_step_id=step.cadence_step_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-x"></i></button>
+            </form>
+          </li>
+          {% else %}
+          <li class="list-group-item px-0 text-muted small">No cadence steps.</li>
+          {% endfor %}
+        </ul>
+        <form method="post" action="{{ url_for('client_acquisition.new_cadence_step', template_id=tpl.pipeline_template_id, stage_number=stage.stage_number) }}" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-3"><input type="number" min="0" class="form-control form-control-sm" name="day_offset" placeholder="Day" required></div>
+          <div class="col-5"><input class="form-control form-control-sm" name="action_label" placeholder="Action" required></div>
+          <div class="col-3">
+            <select class="form-select form-select-sm" name="channel">
+              <option value="">Channel</option>
+              {% for c in channels %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-1"><button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-plus"></i></button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<p class="text-muted">No stages yet — add the first one below.</p>
+{% endfor %}
+
+<div class="card shadow-sm border-0">
+  <div class="card-body">
+    <form method="post" action="{{ url_for('client_acquisition.new_stage', template_id=tpl.pipeline_template_id) }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4"><input class="form-control" name="stage_name" placeholder="New stage name" required></div>
+      <div class="col-md-3"><input type="number" min="0" class="form-control" name="typical_window_days" placeholder="Typical window (days)"></div>
+      <div class="col-md-3"><input type="number" min="0" max="100" class="form-control" name="probability_percent" placeholder="Probability %"></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Add Stage</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
