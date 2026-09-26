@@ -84,6 +84,69 @@ def _clean(value, max_len=MAX_FIELD_LENGTH) -> str:
     return value.strip()[:max_len]
 
 
+def _match_keys_for(contact_email: str, contact_phone: str) -> set:
+    """Same match-key shape as data_exchange.py's Contacts importer
+    (email:<lowercased address>, phone:<normalized digits>) -- built here
+    from a single website submission's email/phone instead of a parsed CSV
+    row, so it can be compared against existing contacts with the exact
+    same rules (blueprints/data_exchange.py's _find_matching_contact,
+    reused directly rather than reinvented -- see submit_lead() below)."""
+    from blueprints.data_exchange import _normalize_phone_digits
+
+    keys = set()
+    if contact_email:
+        keys.add(f"email:{contact_email.lower()}")
+    if contact_phone:
+        digits = _normalize_phone_digits(contact_phone)
+        if digits:
+            keys.add(f"phone:{digits}")
+    return keys
+
+
+def _find_possible_duplicates(db, tenant_id: int, match_keys: set) -> dict:
+    """Broader than _find_matching_contact -- that one only looks at
+    contacts sharing the submitted name (a name is a required part of its
+    "safe to auto-merge" rule). This one ignores name entirely and finds
+    ANY existing, non-deleted contact in this tenant sharing a normalized
+    email or phone. Only called when the safe check above already came up
+    empty, to decide whether the mismatch is worth flagging for a human --
+    see submit_lead()'s needs_review handling. Returns {contact_id:
+    full_name}, since a submission's email and phone could each point at a
+    *different* existing contact, and both are worth naming in the flag."""
+    from blueprints.data_exchange import _normalize_phone_digits
+
+    found = {}
+    for key in match_keys:
+        kind, _, value = key.partition(":")
+        if kind == "email":
+            rows = db.execute(
+                "SELECT c.contact_id, c.full_name FROM contacts c "
+                "JOIN contact_emails ce ON ce.contact_id = c.contact_id "
+                "WHERE c.tenant_id = ? AND c.is_deleted = 0 AND lower(ce.email_address) = ?",
+                (tenant_id, value),
+            ).fetchall()
+        elif kind == "phone":
+            # No normalized column to compare against directly, so this
+            # pulls the tenant's phone rows and normalizes in Python, same
+            # as _find_matching_contact does for its own candidates -- this
+            # app has no bulk-phone index, and per-tenant contact counts
+            # are small enough that this is fine.
+            rows = [
+                row for row in db.execute(
+                    "SELECT c.contact_id, c.full_name, cp.number FROM contacts c "
+                    "JOIN contact_phones cp ON cp.contact_id = c.contact_id "
+                    "WHERE c.tenant_id = ? AND c.is_deleted = 0",
+                    (tenant_id,),
+                )
+                if _normalize_phone_digits(row["number"]) == value
+            ]
+        else:
+            continue
+        for row in rows:
+            found[row["contact_id"]] = row["full_name"]
+    return found
+
+
 @public_leads_bp.route("/leads", methods=["POST", "OPTIONS"])
 def submit_lead():
     if request.method == "OPTIONS":
@@ -128,6 +191,16 @@ def submit_lead():
         return jsonify(ok=False, error="Please provide a name, email, or phone number so we can reach you."), 400
 
     tenant_id = tenant["tenant_id"]
+    # blueprints/data_exchange.py's and blueprints/client_acquisition.py's
+    # helpers reused below are all written against g.tenant_id/g.user_id --
+    # the normal request-scoped globals login_required sets (see
+    # auth/decorators.py) -- so both are set here to the same effect for
+    # this token-authenticated, session-less request. g.user_id = None is
+    # correct, not a placeholder: nullable *_user_id columns exist
+    # precisely for "no GSS user did this" cases like a website visitor's
+    # own submission.
+    g.tenant_id = tenant_id
+    g.user_id = None
 
     # Find-or-create the Organization by name within this tenant, same
     # convention as the CSV/ad-import paths in blueprints/data_exchange.py.
@@ -145,23 +218,78 @@ def submit_lead():
         organization_id = cur.lastrowid
     db.commit()
 
+    # Contact dedup -- three tiers, same spirit as the CSV Contacts
+    # importer's own _find_matching_contact but adapted for a single live
+    # submission instead of a batch:
+    #   1. Safe auto-merge: name AND a shared email/phone with an existing
+    #      contact -> reuse it outright, nothing new created.
+    #   2. Contact-info collision without a name match: create the contact
+    #      as usual, but flag it (needs_review/review_note) for a human to
+    #      look at -- see this module's docstring's "accepted trade-off"
+    #      framing extended to this case: better to let the lead through
+    #      immediately (cadence tasks, notification email) and flag the
+    #      ambiguity than to hold every submission for manual review.
+    #   3. No overlap at all: plain new contact, nothing flagged.
     full_name = contact_name or contact_email or contact_phone or "Website Lead"
-    cur = db.execute(
-        "INSERT INTO contacts (tenant_id, full_name, current_organization_id) VALUES (?, ?, ?)",
-        (tenant_id, full_name, organization_id),
-    )
-    contact_id = cur.lastrowid
-    if contact_email:
-        db.execute(
-            "INSERT INTO contact_emails (tenant_id, contact_id, email_address, is_primary) VALUES (?, ?, ?, 1)",
-            (tenant_id, contact_id, contact_email),
+    match_keys = _match_keys_for(contact_email, contact_phone)
+
+    from blueprints.data_exchange import _find_matching_contact, _normalize_phone_digits
+
+    existing_contact_id = _find_matching_contact(db, full_name, match_keys) if match_keys else None
+
+    if existing_contact_id:
+        contact_id = existing_contact_id
+        # Attach this submission's email/phone to the existing contact only
+        # if it isn't already on file -- "reuse, don't duplicate, don't
+        # overwrite" is the same convention _merge_organizations and the
+        # CSV importer already use elsewhere in this app. Never primary --
+        # an existing contact already has its own primary email/phone, and
+        # this is just adding a second way to reach the same person.
+        if contact_email and not db.execute(
+            "SELECT 1 FROM contact_emails WHERE contact_id = ? AND lower(email_address) = ?",
+            (contact_id, contact_email.lower()),
+        ).fetchone():
+            db.execute(
+                "INSERT INTO contact_emails (tenant_id, contact_id, email_address, is_primary) VALUES (?, ?, ?, 0)",
+                (tenant_id, contact_id, contact_email),
+            )
+        if contact_phone and not any(
+            _normalize_phone_digits(r["number"]) == _normalize_phone_digits(contact_phone)
+            for r in db.execute("SELECT number FROM contact_phones WHERE contact_id = ?", (contact_id,))
+        ):
+            db.execute(
+                "INSERT INTO contact_phones (tenant_id, contact_id, phone_type, number, is_primary) VALUES (?, ?, 'Business', ?, 0)",
+                (tenant_id, contact_id, contact_phone),
+            )
+        db.commit()
+    else:
+        possible_dupes = _find_possible_duplicates(db, tenant_id, match_keys) if match_keys else {}
+        needs_review = bool(possible_dupes)
+        review_note = None
+        if needs_review:
+            named = "; ".join(f"#{cid} ({name})" for cid, name in possible_dupes.items())
+            review_note = (
+                f'Website submission named "{full_name}" shares an email or phone with existing '
+                f"contact(s) {named}, but the name didn't match closely enough to merge automatically "
+                "-- check whether this is the same person."
+            )
+        cur = db.execute(
+            "INSERT INTO contacts (tenant_id, full_name, current_organization_id, needs_review, review_note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (tenant_id, full_name, organization_id, 1 if needs_review else 0, review_note),
         )
-    if contact_phone:
-        db.execute(
-            "INSERT INTO contact_phones (tenant_id, contact_id, phone_type, number, is_primary) VALUES (?, ?, 'Business', ?, 1)",
-            (tenant_id, contact_id, contact_phone),
-        )
-    db.commit()
+        contact_id = cur.lastrowid
+        if contact_email:
+            db.execute(
+                "INSERT INTO contact_emails (tenant_id, contact_id, email_address, is_primary) VALUES (?, ?, ?, 1)",
+                (tenant_id, contact_id, contact_email),
+            )
+        if contact_phone:
+            db.execute(
+                "INSERT INTO contact_phones (tenant_id, contact_id, phone_type, number, is_primary) VALUES (?, ?, 'Business', ?, 1)",
+                (tenant_id, contact_id, contact_phone),
+            )
+        db.commit()
 
     # Opportunity, in the tenant's first active pipeline template -- same
     # shape (stage history + checklist snapshot + cadence tasks) that a
@@ -194,26 +322,28 @@ def submit_lead():
             ),
         )
         opportunity_id = cur.lastrowid
+        # Links the submitting person to the Opportunity itself, same as
+        # clicking "Add" in that Opportunity's own Contacts panel would --
+        # without this, the visitor who actually filled out the form never
+        # shows up there, only on the Organization. contact_role is left
+        # unset; nothing about a website submission tells us whether this
+        # person is the Economic Buyer, an Influencer, etc.
+        db.execute(
+            "INSERT INTO opportunity_contacts (tenant_id, opportunity_id, contact_id, contact_role) VALUES (?, ?, ?, NULL)",
+            (tenant_id, opportunity_id, contact_id),
+        )
         db.commit()
 
         if first_stage:
-            # These three helpers are written against g.tenant_id/g.user_id
-            # (the normal request-scoped globals login_required sets — see
-            # auth/decorators.py) rather than taking them as arguments, so
-            # they're set here to the same effect for this token-
-            # authenticated, session-less request. Both stage_history.
-            # changed_by_user_id and tasks.assigned_user_id are nullable
-            # (schema.sql) precisely because "no user did this" is a real,
-            # expected case, e.g. a Cadence-generated task -- so g.user_id
-            # = None here is not a workaround, it's the correct value: no
-            # GSS user, a website visitor, created this.
+            # record_stage_history/_snapshot_checklist/_generate_cadence_
+            # tasks are written against g.tenant_id/g.user_id (already set
+            # above, to the same effect for this token-authenticated,
+            # session-less request) rather than taking them as arguments.
             from blueprints.client_acquisition import (
                 _generate_cadence_tasks,
                 _record_stage_history,
                 _snapshot_checklist,
             )
-            g.tenant_id = tenant_id
-            g.user_id = None
             now = db.execute("SELECT datetime('now') n").fetchone()["n"]
             _record_stage_history(
                 db, opportunity_id, None, None, "Active", first_stage["stage_number"],

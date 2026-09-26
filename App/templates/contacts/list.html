@@ -53,7 +53,7 @@
             <i class="bi bi-person-circle text-muted" style="font-size:32px;"></i>
             {% endif %}
           </td>
-          <td>{% if c.priority_contact %}<i class="bi bi-star-fill text-warning"></i>{% endif %}{% if c.is_deceased %}<i class="bi bi-flower1 text-muted ms-1" title="Deceased"></i>{% endif %}</td>
+          <td>{% if c.priority_contact %}<i class="bi bi-star-fill text-warning"></i>{% endif %}{% if c.is_deceased %}<i class="bi bi-flower1 text-muted ms-1" title="Deceased"></i>{% endif %}{% if c.needs_review %}<i class="bi bi-exclamation-triangle-fill text-warning ms-1" title="Possible duplicate — see contact page"></i>{% endif %}</td>
           <td class="text-nowrap"><strong>{{ c.file_as or c.full_name }}</strong></td>
           <td class="text-nowrap">{{ c.organization_name or "" }}</td>
           <td class="text-nowrap">{{ {"country_code": c.primary_phone_country_code, "area_code": c.primary_phone_area_code, "number": c.primary_phone_number, "extension": c.primary_phone_extension} | format_phone }}</td>

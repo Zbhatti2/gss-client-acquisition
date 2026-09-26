@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title %}{{ contact.full_name }}{% endblock %}
 {% block content %}
+{% if contact.needs_review %}
+<div class="alert alert-warning d-flex justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <strong><i class="bi bi-exclamation-triangle"></i> Possible duplicate</strong>
+    <div class="small mt-1">{{ contact.review_note }}</div>
+  </div>
+  <form method="post" action="{{ url_for('contacts.clear_duplicate_flag', contact_id=contact.contact_id) }}" class="flex-shrink-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-warning btn-sm text-nowrap" type="submit">Mark Reviewed</button>
+  </form>
+</div>
+{% endif %}
 <div class="d-flex justify-content-between align-items-start mb-4">
   <div class="d-flex align-items-center gap-3">
     {% if contact.profile_image_path %}

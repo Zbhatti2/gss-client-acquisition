@@ -965,6 +965,19 @@ CREATE TABLE contacts (
     notes           TEXT,
     knowledge_graph_data TEXT,              -- freeform, ';'-delimited entries (e.g. "Reports to X"); Phase 2: structured triples
     is_deleted      INTEGER NOT NULL DEFAULT 0,
+    -- Duplicate-detection flag -- set ONLY by the public lead-intake path
+    -- (blueprints/public_leads.py), never by any other code path. Raised
+    -- when a website submission's email/phone matches an EXISTING contact
+    -- whose name doesn't also match closely enough for the safe,
+    -- automatic reuse check (blueprints/data_exchange.py's
+    -- _find_matching_contact, imported and reused here rather than
+    -- reinvented) to just attach the new Opportunity to that existing
+    -- contact directly -- see that module's docstring for the full
+    -- reasoning. A TenantAdmin/User reviews it on the contact's own page
+    -- and clears it by hand (contacts.py's clear_duplicate_flag); nothing
+    -- else unsets it automatically.
+    needs_review    INTEGER NOT NULL DEFAULT 0,
+    review_note     TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

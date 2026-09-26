@@ -430,6 +430,30 @@ def edit_contact(contact_id):
     return render_template("contacts/form.html", contact=contact, preselect_assistant_id=preselect_assistant_id, **_lookups(db))
 
 
+@contacts_bp.route("/<int:contact_id>/clear-duplicate-flag", methods=["POST"])
+@login_required
+def clear_duplicate_flag(contact_id):
+    """Dismisses the possible-duplicate flag a website lead submission can
+    raise on a contact (blueprints/public_leads.py's needs_review/
+    review_note — see schema.sql's comment on those columns). This route
+    is the only thing that unsets it; nothing does so automatically. It
+    doesn't touch or merge any data — if the two contacts really are the
+    same person, that's still a manual call (there's no contact-merge
+    feature today, unlike organizations.py's Merge Organizations)."""
+    db = get_db()
+    contact = db.execute(
+        "SELECT contact_id FROM contacts WHERE contact_id = ? AND is_deleted = 0 AND tenant_id = ?",
+        (contact_id, g.tenant_id),
+    ).fetchone()
+    if contact is None:
+        abort(404)
+    db.execute("UPDATE contacts SET needs_review = 0, review_note = NULL WHERE contact_id = ?", (contact_id,))
+    db.commit()
+    log_action("Update", "contact", contact_id, "Cleared possible-duplicate flag")
+    flash("Duplicate flag cleared.", "success")
+    return redirect(url_for("contacts.view_contact", contact_id=contact_id))
+
+
 @contacts_bp.route("/<int:contact_id>/delete", methods=["POST"])
 @login_required
 def delete_contact(contact_id):

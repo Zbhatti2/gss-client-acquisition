@@ -1033,6 +1033,21 @@ def _migration_lead_intake(db):
     db.commit()
 
 
+def _migration_contact_duplicate_flag(db):
+    """Adds contacts.needs_review and contacts.review_note (see schema.sql's
+    comment on these columns). Set only by blueprints/public_leads.py, when
+    a website lead's email/phone matches an existing contact whose name
+    doesn't also match closely enough for the safe automatic reuse check
+    (data_exchange.py's _find_matching_contact) to just attach to it
+    directly. Both default to their "nothing flagged" state, so nothing
+    about any existing contact changes just by running this migration."""
+    if not _column_exists(db, "contacts", "needs_review"):
+        db.execute("ALTER TABLE contacts ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0")
+    if not _column_exists(db, "contacts", "review_note"):
+        db.execute("ALTER TABLE contacts ADD COLUMN review_note TEXT")
+    db.commit()
+
+
 # Append-only. Each entry is (unique_name, function(db)). Never edit or
 # remove a past entry once shipped — a database that already applied it
 # only cares that the name is still recorded in schema_migrations; add a
@@ -1059,6 +1074,7 @@ MIGRATIONS = [
     ("2026_09_agents_billing", _migration_agents_billing),
     ("2026_09_client_acquisition_module", _migration_client_acquisition_module),
     ("2026_09_lead_intake", _migration_lead_intake),
+    ("2026_09_contact_duplicate_flag", _migration_contact_duplicate_flag),
 ]
 
 
