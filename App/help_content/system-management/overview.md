@@ -1,7 +1,7 @@
 ---
 title: System Management Overview
 order: 1
-keywords: [account, retention, purge, backup, audit log, health]
+keywords: [account, retention, purge, backup, audit log, health, lead intake, website, token, notification email]
 ---
 System Management covers your organization's account settings, not any
 one record — most of it (retention, backups) is restricted to Tenant
@@ -14,6 +14,27 @@ Set **data retention days** to have deleted records permanently erased
 entry — leave it blank for indefinite retention. This runs automatically
 once a day at login; **Run purge now** runs it on demand instead of
 waiting.
+
+## Lead Intake Config
+
+**Tenant Admin only.** Click **Config** on the Account card to connect
+your organization's own public website's contact form directly into
+Client Acquisition — a submission there creates an Opportunity here with
+no one on your team re-typing it in.
+
+- **Notification email** — where a "new lead" email is sent when someone
+  submits the form (leave blank and leads still save, you just won't get
+  an email about them).
+- **Intake token** — a long random value that authenticates the
+  website's submissions as belonging to your organization specifically.
+  This page shows a ready-to-paste snippet with your real token already
+  filled in, for whoever maintains your website. It's meant to live in
+  that site's public JavaScript — it can only ever create one Opportunity
+  per submission, nothing more, so that exposure is by design, not a
+  mistake.
+- **Regenerate** — issues a brand-new token and immediately invalidates
+  the old one, if you ever need to cut off a website's access (e.g. it's
+  been retired or the value leaked somewhere it shouldn't have).
 
 ## Database health
 
