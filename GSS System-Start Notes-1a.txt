@@ -9,9 +9,9 @@ System Level (GSS)
 PS D:\Codegen\Claude\GSS\App> venv\Scripts\activate
 (venv) PS D:\Codegen\Claude\GSS\App> flask --app app create-system-admin
 Username: Zbhatti2
-Display name: Zeb Bhatti
-Password: Zebragss1
-Created SystemAdmin 'Zbhatti2'. Log in at /login with this username and password.
+Display name: xxxxxxxxx
+Password: xxxxxxxxxx
+Created SystemAdmin 'xxxxxxxx'. Log in at /login with this username and password.
 (venv) PS D:\Codegen\Claude\GSS\App>
 
 
@@ -21,20 +21,20 @@ http://127.0.0.1:5000
 Log in with the admin account:
  
 First Tenant: 
-Name: "Granite Signal Systems"
-Address: 104 Old Winslow Road
-Wilmot, NH. 03287
-Phone: +1-603-975-7200
+Name: "xxxxx xxxxxxx xxxxxxxx"
+Address: xxxxxxxxxxxxxx
+xxxxxx, xx. xxxxxxx
+Phone: +1-xxxx-xxx-xxxx
 
 Log in for Tenant#1 admin account:
-Zeb. / `Zebra123`
+xxxxxx. / `xxxxxxx
 
 
 SETTING UP GIT
 ===============
 #Tell git who you are (one-time, if you haven't already)
-git config --global user.name "Zbhatti2"
-git config --global user.email "zbhatti2@gmail.com"
+git config --global user.name "xxxxxxxxxx"
+git config --global user.email "xxxxxxxxx@gmail.com"
 
 #Initialize the repo
 git init -b main
@@ -65,7 +65,7 @@ git commit -m "Initial commit: GSS Flask app"
 Go to github.com, sign in, click the + in the top right → New repository. 
 
 https://github.com
-(UID: Zbhatti2/ Zebragithub1955!)
+(UID: xxxxxxxxxx/ xxxxxxxxxxxxx)
 
 Name it (e.g. gss-client-acquisition).
 
