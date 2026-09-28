@@ -50,6 +50,65 @@ def _active_tenant_admin_count(db, exclude_user_id=None):
     return row["c"]
 
 
+# ---------------------------------------------------------------- delete
+#
+# Every table anywhere in schema.sql with a column that REFERENCES
+# users(user_id), split into two groups:
+#
+# BLOCKING_REFERENCES — current, still-live ownership: an Opportunity or
+# Task actually assigned to this person, still theirs to work until someone
+# reassigns it. Deleting the user out from under those would silently orphan
+# open pipeline work, so these block the delete outright (same "blocked
+# outright ... reassign first" shape organizations.py uses for merging
+# duplicate Organizations) — reassigning is a normal edit on the
+# Opportunity/Task itself in Client Acquisition, so no separate
+# reassign-many tool is needed here.
+#
+# HISTORICAL_REFERENCES — a past action's "who did this" breadcrumb, on a
+# table whose own row stands on its own either way (an audit_log entry, a
+# completed checklist item, a logged interaction, a stage-history entry, a
+# past agent-access request/decision, a stored API-credential's "added by").
+# Every one of these columns is already nullable in schema.sql (several with
+# an explicit "NULL for ..." comment) precisely so the row can outlive its
+# actor — same idea as a deleted GitHub account's old comments showing
+# "ghost". These never block the delete; _clear_historical_user_refs nulls
+# them out immediately beforehand so PRAGMA foreign_keys = ON (db.py) doesn't
+# reject the DELETE on the users row itself.
+BLOCKING_REFERENCES = [
+    {"table": "opportunities", "fk": "assigned_user_id", "label": "opportunity(ies) assigned"},
+    {"table": "tasks", "fk": "assigned_user_id", "label": "task(s) assigned"},
+]
+HISTORICAL_REFERENCES = [
+    ("audit_log", "user_id"),
+    ("agent_usage_log", "user_id"),
+    ("opportunity_stage_checklist_progress", "completed_by_user_id"),
+    ("opportunity_stage_history", "changed_by_user_id"),
+    ("interactions", "created_by_user_id"),
+    ("tenant_agents", "requested_by_user_id"),
+    ("tenant_agents", "decided_by_user_id"),
+    ("tenant_model_credentials", "added_by_user_id"),
+]
+
+
+def _usage_count(db, user_id):
+    total = 0
+    breakdown = []
+    for ref in BLOCKING_REFERENCES:
+        count = db.execute(
+            f"SELECT COUNT(*) c FROM {ref['table']} WHERE {ref['fk']} = ? AND tenant_id = ?",
+            (user_id, g.tenant_id),
+        ).fetchone()["c"]
+        if count:
+            breakdown.append({"label": ref["label"], "count": count})
+        total += count
+    return total, breakdown
+
+
+def _clear_historical_user_refs(db, user_id):
+    for table, column in HISTORICAL_REFERENCES:
+        db.execute(f"UPDATE {table} SET {column} = NULL WHERE {column} = ? AND tenant_id = ?", (user_id, g.tenant_id))
+
+
 @users_bp.route("/")
 @tenant_admin_required
 def list_users():
@@ -181,6 +240,43 @@ def toggle_active(user_id):
     db.commit()
     log_action("Update", "users", user_id, f"{'Activated' if new_state else 'Deactivated'} user '{user['username']}'")
     flash(f"'{user['display_name']}' {'activated' if new_state else 'deactivated'}.", "success")
+    return redirect(url_for("users.list_users"))
+
+
+@users_bp.route("/<int:user_id>/delete", methods=["POST"])
+@tenant_admin_required
+def delete_user(user_id):
+    """Permanently removes a user — unlike Deactivate (toggle_active above),
+    which just blocks their login and keeps everything about them on file,
+    this erases the users row itself. Only allowed when nothing still
+    depends on them being a real, ongoing person: see BLOCKING_REFERENCES/
+    HISTORICAL_REFERENCES above for exactly what counts as "a record
+    associated with the user" for this check and why."""
+    db = get_db()
+    user = _get_user_or_404(db, user_id)
+
+    if user_id == g.user_id:
+        flash("You can't delete your own account.", "error")
+        return redirect(url_for("users.list_users"))
+    if user["role"] == "TenantAdmin" and user["is_active"] and _active_tenant_admin_count(db, exclude_user_id=user_id) == 0:
+        flash("This is the last active Tenant Admin — your organization needs at least one.", "error")
+        return redirect(url_for("users.list_users"))
+
+    count, breakdown = _usage_count(db, user_id)
+    if count:
+        parts = ", ".join(f"{b['count']} {b['label']}" for b in breakdown)
+        flash(
+            f"'{user['display_name']}' still has {parts} — reassign those (in Client Acquisition) "
+            f"before deleting this user, or deactivate them instead.",
+            "error",
+        )
+        return redirect(url_for("users.list_users"))
+
+    _clear_historical_user_refs(db, user_id)
+    db.execute("DELETE FROM users WHERE user_id = ? AND tenant_id = ?", (user_id, g.tenant_id))
+    db.commit()
+    log_action("Delete", "users", user_id, f"Deleted user '{user['username']}' ({user['role']})")
+    flash(f"'{user['display_name']}' deleted.", "success")
     return redirect(url_for("users.list_users"))
 
 
