@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# GSS -- what goes to GitHub
+#
+# ONLY the application code (App/) -- plus any tenant websites built later
+# (websites/) -- is published. Everything else in this folder stays on the
+# local PC: design notes, mockups, input data (business cards, flyers,
+# contact lists), Claude outputs, start-up notes with passwords, and so on.
+# Whitelist style: ignore everything at the top level, then allow back only
+# what the running system needs.
+# ---------------------------------------------------------------------------
+/*
+!/.gitignore
+!/App/
+!/websites/
+
+# Inside App/: secrets, live data and local-only helpers
+App/.env
+App/instance/
+App/venv/
+App/.venv/
+App/start_gss_*.bat
+*.key
+*.db
+*.docx
+*.pdf
+*.lnk
+*.jbf
+
+# Python / tooling
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
